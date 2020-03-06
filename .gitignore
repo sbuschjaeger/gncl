@@ -3,3 +3,8 @@ cifar-10-batches-py/
 results.jsonl
 training.csv
 config.json
+*.checkpoint
+*.mat
+*.csv
+*.npy
+*.gz
