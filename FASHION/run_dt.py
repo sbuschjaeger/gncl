@@ -56,8 +56,8 @@ def read_data(arg, *args, **kwargs):
     else:
         return read_examples(path + "/train-images-idx3-ubyte.gz"), read_targets(path + "/train-labels-idx1-ubyte.gz")
 
-def dl_model(*args, **kwargs):
-    return nn.Sequential(
+def split_estimator(*args, **kwargs):
+    model = [
         nn.Conv2d(1, 32, kernel_size=3, padding=1, stride = 1),
         nn.BatchNorm2d(32),
         nn.ReLU(),
@@ -70,9 +70,33 @@ def dl_model(*args, **kwargs):
         nn.Linear(7*7*32,64),
         nn.BatchNorm1d(64),
         nn.ReLU(),
-        nn.Linear(64,10),
-        # Clamp(min_out = -1, max_out = 1)
-    )
+        nn.Linear(64,1),
+        nn.BatchNorm1d(1),
+        nn.Sigmoid()
+    ]
+
+    model = filter(None, model)
+    return nn.Sequential(*model)
+
+def leaf_estimator(*args, **kwargs):
+    model = [
+        nn.Conv2d(1, 32, kernel_size=3, padding=1, stride = 1),
+        nn.BatchNorm2d(32),
+        nn.ReLU(),
+        nn.MaxPool2d(2),
+        nn.Conv2d(32, 32, kernel_size=3, padding=1, stride = 1),
+        nn.BatchNorm2d(32),
+        nn.ReLU(),
+        nn.MaxPool2d(2),
+        Flatten(),
+        nn.Linear(7*7*32,64),
+        nn.BatchNorm1d(64),
+        nn.ReLU(),
+        nn.Linear(64,10)
+    ]
+
+    model = filter(None, model)
+    return nn.Sequential(*model)
 
 scheduler = {
     "method" : torch.optim.lr_scheduler.StepLR,
@@ -110,28 +134,15 @@ models = []
 
 models.append(
     {
-        "model":BaggingClassifier,
-        "base_estimator":dl_model,
-        "bootstrap":False,
-        "freeze_layers":True,
-        "n_estimators":5,
-        "eval_test":1,
+        "model":DeepDecisionTreeClassifier,
+        "split_estimator":split_estimator,
+        "leaf_estimator":leaf_estimator,
+        "depth":3,
+        "soft":False,
         "optimizer":optimizer,
         "scheduler":scheduler,
         "loss_function":weighted_cross_entropy_with_softmax,
     }
 )
-
-# models.append(
-#     {
-#         "model":DeepDecisionTreeClassifier,
-#         "split_estimator":split_estimator,
-#         "leaf_estimator":leaf_estimator,
-#         "depth":2,
-#         "optimizer":optimizer,
-#         "scheduler":scheduler,
-#         "loss_function":weighted_cross_entropy_with_softmax,
-#     }
-# )
 
 run_experiments(basecfg, models, cuda_devices = cuda_devices, n_cores=len(cuda_devices))

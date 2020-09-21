@@ -73,6 +73,99 @@ def read_data(arg ,*args, **kwargs):
 
     return X,Y
 
+class AnscombeNormalization1d(nn.Module):
+    """
+    a layernorm module in the TF style (epsilon inside the square root).
+    """
+    def __init__(self, hidden_size, eps=1e-12):
+        """Construct a layernorm module in the TF style (epsilon inside the square root).
+        """
+        super(AnscombeNormalization1d, self).__init__()
+        self.register_buffer('running_mean', torch.zeros(hidden_size))
+        self.register_buffer('running_var', torch.ones(hidden_size))
+
+        self.variance_epsilon = eps
+
+    def forward(self, x):
+        if self.training:
+            mu = x.mean(dim=0,keepdim=True)
+            s = x.std(dim=0,keepdim=True)
+            # print("MU 1: ", mu)
+            # print("x: ", x)
+            
+            # if torch.isnan(mu).any():
+            #     asdf
+
+            self.running_mean = self.running_mean * 0.99 + 0.01 * mu.detach()
+            self.running_var = self.running_var * 0.99 + 0.01 * s.detach()
+            #x = (x - u) / (s + self.variance_epsilon)
+        else:
+            mu = self.running_mean
+            s = self.running_var
+            #x = (x - self.running_mean) / (self.running_var + self.variance_epsilon)
+
+        # print("")
+        # print("MU 2: ", mu)
+        # print("")
+        a = 1
+        #t = -3.0/8.0*a - (s**2)/a + mu
+        #t = torch.cat(x.shape[0]*[t])
+        t = a*x+3.0/8.0*(a**2)-a*mu
+        is_greater = t > 0
+        # print("X: ", x.shape)
+        # print("t: ", t.shape)
+        # print(is_greater)
+        # print("is_greater ", is_greater.shape)
+        # print("SQRT: ", a*is_greater*x+3.0/8.0*(a**2)-a*mu)
+        x = is_greater * 2.0/a*torch.sqrt(is_greater*(a*x+3.0/8.0*(a**2)-a*mu)+0.01)
+        #print(is_greater * x + 0.01)
+        #x = is_greater * 2.0 / a * torch.sqrt(is_greater * x + 0.01)
+        # x[x != x] = 0.01 # EVIL HACK
+
+        # print(x.shape)
+        # print(x)
+        # asdf
+        # # print("ts: ", t_stacked.shape)
+        # # print("mu: ", mu.shape)
+        # # asdf
+        # x[x > t] = 2.0/a*torch.sqrt(a*x[x>t]+3.0/8.0*(a**2)-a*mu)
+        # x[x <= t] = 0
+        return x    
+
+class AnscombeNormalization2d(nn.Module):
+    """
+    a layernorm module in the TF style (epsilon inside the square root).
+    """
+    def __init__(self, n_filters, eps=1e-12):
+        """Construct a layernorm module in the TF style (epsilon inside the square root).
+        """
+        super(AnscombeNormalization2d, self).__init__()
+        self.register_buffer('running_mean', torch.zeros(n_filters))
+        self.register_buffer('running_var', torch.ones(n_filters))
+
+        self.variance_epsilon = eps
+
+    def forward(self, x):
+        if self.training:
+            mu = x.mean(dim=(0,2,3),keepdim=True)
+            s = x.std(dim=(0,2,3),keepdim=True)
+
+            self.running_mean = self.running_mean * 0.99 + 0.01 * mu.detach()
+            self.running_var = self.running_var * 0.99 + 0.01 * s.detach()
+            #x = (x - u) / (s + self.variance_epsilon)
+        else:
+            mu = self.running_mean
+            s = self.running_var
+            #x = (x - self.running_mean) / (self.running_var + self.variance_epsilon)
+
+        a = 1
+        #t = -3.0/8.0*a - (s**2)/a + mu
+        #t = torch.cat(x.shape[0]*[t])
+        t = a*x+3.0/8.0*(a**2)-a*mu
+        is_greater = t > 0
+        x = is_greater * 2.0/a*torch.sqrt(is_greater*(a*x+3.0/8.0*(a**2)-a*mu)+0.01)
+        return x    
+
 class SparseBN1d(nn.Module):
     """
     a layernorm module in the TF style (epsilon inside the square root).
@@ -161,7 +254,8 @@ def mlp_model(model_type, n_layers, l_size,*args, **kwargs):
         model.extend(
             [
                 LinearLayer(l_size, l_size) if i > 0 else LinearLayer(45*46, l_size),
-                nn.BatchNorm1d(l_size),
+                #nn.BatchNorm1d(l_size),
+                AnscombeNormalization1d(l_size),
                 Activation(),
             ]
         )
@@ -174,7 +268,7 @@ def mlp_model(model_type, n_layers, l_size,*args, **kwargs):
     model = filter(None, model)
     return nn.Sequential(*model)
 
-def cnn_model(model_type, n_channels = 16, depth = 2,*args, **kwargs):
+def cnn_model(model_type, n_channels = 16, depth = 2, use_anscombe = False, *args, **kwargs):
     if "binary" in model_type:
         ConvLayer = BinaryConv2d
         LinearLayer = BinaryLinear
@@ -187,10 +281,10 @@ def cnn_model(model_type, n_channels = 16, depth = 2,*args, **kwargs):
     def make_layers(level, n_channels):
         return [
             ConvLayer(1 if level == 0 else level*n_channels, (level+1)*n_channels, kernel_size=3, padding=1, stride = 1, bias=True),
-            nn.BatchNorm2d((level+1)*n_channels),
+            AnscombeNormalization2d((level+1)*n_channels) if use_anscombe else nn.BatchNorm2d((level+1)*n_channels),
             Activation(),
             ConvLayer((level+1)*n_channels, (level+1)*n_channels, kernel_size=3, padding=1, stride = 1, bias=True),
-            nn.BatchNorm2d((level+1)*n_channels),
+            AnscombeNormalization2d((level+1)*n_channels) if use_anscombe else nn.BatchNorm2d((level+1)*n_channels),
             Activation(),
             nn.MaxPool2d(kernel_size=2,stride=2)
         ]
@@ -212,7 +306,7 @@ def cnn_model(model_type, n_channels = 16, depth = 2,*args, **kwargs):
         [
             Flatten(),
             LinearLayer(lin_size, 1024),
-            nn.BatchNorm1d(1024),
+            AnscombeNormalization1d(1024) if use_anscombe else nn.BatchNorm1d(1024),
             Activation(),
             LinearLayer(1024, 2)
         ]
@@ -260,8 +354,8 @@ models = []
 models.append(
     {
         "model":SKLearnModel,
-        #"base_estimator": partial(bnn_model, model_type="float", n_channels=8, depth=2),
-        "base_estimator": partial(mlp_model, model_type="float", n_layers=3, l_size=1024),
+        "base_estimator": partial(cnn_model, model_type="float", n_channels=16, depth=3, use_anscombe=False),
+        # "base_estimator": partial(mlp_model, model_type="float", n_layers=3, l_size=1024),
         "optimizer":optimizer,
         "scheduler":scheduler,
         "loss_function":weighted_cross_entropy_with_softmax,
@@ -273,8 +367,8 @@ models.append(
 models.append(
     {
         "model":SKLearnModel,
-        #"base_estimator": partial(bnn_model, model_type="binary", n_channels=8, depth=2),
-        "base_estimator": partial(mlp_model, model_type="binary", n_layers=3, l_size=1024),
+        "base_estimator": partial(cnn_model, model_type="float", n_channels=16, depth=3, use_anscombe=True),
+        # "base_estimator": partial(mlp_model, model_type="float", n_layers=3, l_size=1024),
         "optimizer":optimizer,
         "scheduler":scheduler,
         "loss_function":weighted_cross_entropy_with_softmax,
@@ -283,20 +377,61 @@ models.append(
     }
 )
 
-for ne in [2,3,4,5]:
-    models.append(
-        {
-            "model":SGDEnsembleClassifier,
-            #"base_estimator": partial(bnn_model, model_type="binary", n_channels=8, depth=2),
-            "base_estimator": partial(mlp_model, model_type="binary", n_layers=3, l_size=1024),
-            "optimizer":optimizer,
-            "scheduler":scheduler,
-            "loss_function":weighted_cross_entropy_with_softmax,
-            "n_estimators":ne,
-            "x_test":None,
-            "y_test":None
-        }
-    )
+
+models.append(
+    {
+        "model":SKLearnModel,
+        "base_estimator": partial(cnn_model, model_type="float", n_channels=64, depth=3, use_anscombe=False),
+        # "base_estimator": partial(mlp_model, model_type="float", n_layers=3, l_size=1024),
+        "optimizer":optimizer,
+        "scheduler":scheduler,
+        "loss_function":weighted_cross_entropy_with_softmax,
+        "x_test":None,
+        "y_test":None
+    }
+)
+
+models.append(
+    {
+        "model":SKLearnModel,
+        "base_estimator": partial(cnn_model, model_type="float", n_channels=64, depth=3, use_anscombe=True),
+        # "base_estimator": partial(mlp_model, model_type="float", n_layers=3, l_size=1024),
+        "optimizer":optimizer,
+        "scheduler":scheduler,
+        "loss_function":weighted_cross_entropy_with_softmax,
+        "x_test":None,
+        "y_test":None
+    }
+)
+
+
+# models.append(
+#     {
+#         "model":SKLearnModel,
+#         #"base_estimator": partial(bnn_model, model_type="binary", n_channels=8, depth=2),
+#         "base_estimator": partial(mlp_model, model_type="binary", n_layers=3, l_size=1024),
+#         "optimizer":optimizer,
+#         "scheduler":scheduler,
+#         "loss_function":weighted_cross_entropy_with_softmax,
+#         "x_test":None,
+#         "y_test":None
+#     }
+# )
+
+# for ne in [2,3,4,5]:
+#     models.append(
+#         {
+#             "model":SGDEnsembleClassifier,
+#             #"base_estimator": partial(bnn_model, model_type="binary", n_channels=8, depth=2),
+#             "base_estimator": partial(mlp_model, model_type="binary", n_layers=3, l_size=1024),
+#             "optimizer":optimizer,
+#             "scheduler":scheduler,
+#             "loss_function":weighted_cross_entropy_with_softmax,
+#             "n_estimators":ne,
+#             "x_test":None,
+#             "y_test":None
+#         }
+#     )
 
 # models.append(
 #     {

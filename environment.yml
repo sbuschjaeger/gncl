@@ -1,0 +1,26 @@
+name: bnn
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.7 #ray does not provide a wheel for python3.8 at the moment
+  - numpy
+  - pandas
+  - pip
+  - setuptools
+  - pip:
+    - streamlit
+    - pylint # For VSCode 
+    - tqdm
+    - ray
+    - scikit-image
+    - pillow==6.2.2
+    - torch==1.2 
+    - torchvision==0.4.0 
+    - scikit-learn
+    - scipy
+    - cloudpickle
+    - -e file:./experiment_runner/
+    - -e file:./deep_ensembles_v2/
+    
+    

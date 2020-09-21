@@ -54,6 +54,7 @@ def image_from_event(event, roi=[5, 40]):
 
     sequence = event.photon_stream.image_sequence
     img = remap_pixel_values(sequence[roi[0]:roi[1]].sum(axis=0))
+
     return img
 
 def write_to_hdf(recarray, filename, key='events'):
@@ -92,7 +93,8 @@ def convert_file(path):
 @click.argument('out_name')
 @click.option('--n_jobs', '-n', default=16)
 @click.option('--n_chunks', '-c', default=256)
-def main(in_files, out_name, n_jobs, n_chunks):
+@click.option('--photon_threshold', '-p', default=900)
+def main(in_files, out_name, n_jobs, n_chunks, photon_threshold):
     '''
     Reads all photon_stream files and converts them to images.
     '''
@@ -104,7 +106,8 @@ def main(in_files, out_name, n_jobs, n_chunks):
     files = sorted(in_files)
 
     # files = files[:50]
-
+    n_events = 0
+    n_filtered = 0
     file_chunks = np.array_split(files, n_chunks)
     data = []
     for i, fs in enumerate(tqdm(file_chunks)):
@@ -114,10 +117,20 @@ def main(in_files, out_name, n_jobs, n_chunks):
             else:
                 results = list(map(convert_file, fs))
 
-            data.extend(results)
+            #print("Filtering {} files".format(len(results)))
+            for chunk in results:
+                for r in chunk:
+                    n_events += 1
+                    #print("Shape {} with photons=#{}".format(r.shape, r.sum()))
+                    if r.sum() < photon_threshold:
+                        n_filtered += 1
+                    else:
+                        data.append(r)
+                #asdf
         except Exception as e:
             print(e)
 
+    print("Read {} events and filtered {} therefore {} events are left".format(n_events, n_filtered, len(data)))
     data = np.concatenate(data,axis=0)
     # if X is None:
     #     X = results 
