@@ -1,0 +1,8 @@
+[submodule "submodules/experiment_runner"]
+	path = submodules/experiment_runner
+	url = git@github.com:sbuschjaeger/experiment_runner.git
+	branch = master
+[submodule "submodules/deep_ensembles_v2"]
+	path = submodules/deep_ensembles_v2
+	url = git@github.com:sbuschjaeger/deep_ensembles_v2.git
+	branch = master
