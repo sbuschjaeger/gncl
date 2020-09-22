@@ -8,3 +8,4 @@ config.json
 *.csv
 *.npy
 *.gz
+.vscode/settings.json
