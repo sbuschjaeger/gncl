@@ -1,6 +1,0 @@
-[submodule "code/submodules/experiment_runner"]
-	path = code/submodules/experiment_runner
-	url = git@bitbucket.org:sbuschjaeger/experiment_runner.git
-[submodule "code/submodules/deep-ensembles-v2"]
-	path = code/submodules/deep-ensembles-v2
-	url = git@bitbucket.org:sbuschjaeger/deep-ensembles-v2.git

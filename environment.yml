@@ -20,7 +20,7 @@ dependencies:
     - scikit-learn
     - scipy
     - cloudpickle
-    - -e file:./experiment_runner/
-    - -e file:./deep_ensembles_v2/
+    - -e file:./submodules/experiment_runner/
+    - -e file:./submodules/deep_ensembles_v2/
     
     

@@ -16,13 +16,14 @@ import torchvision.transforms as transforms
 
 from sklearn.metrics import make_scorer, accuracy_score
 
-sys.path.append('../submodules/deep-ensembles-v2/')
-from Utils import Flatten, weighted_cross_entropy, weighted_mse_loss, weighted_squared_hinge_loss, cov, weighted_cross_entropy_with_softmax, weighted_lukas_loss, Clamp, Scale
-from Models import SKLearnModel
-from BinarisedNeuralNetworks import BinaryConv2d, BinaryLinear, BinaryTanh
+from deep_ensembles_v2.Utils import Flatten, weighted_cross_entropy, weighted_mse_loss, weighted_squared_hinge_loss, cov, weighted_cross_entropy_with_softmax, weighted_lukas_loss, Clamp, Scale
 
-sys.path.append('../submodules/experiment_runner/')
-from experiment_runner import run_experiments
+from deep_ensembles_v2.Models import SKLearnModel
+from deep_ensembles_v2.BaggingClassifier import BaggingClassifier
+from deep_ensembles_v2.DeepDecisionTreeClassifier import DeepDecisionTreeClassifier
+from deep_ensembles_v2.BinarisedNeuralNetworks import BinaryConv2d, BinaryLinear, BinaryTanh
+
+from experiment_runner.experiment_runner import run_experiments
 
 # Constants for data normalization are taken from https://github.com/kuangliu/pytorch-cifar/blob/master/main.py 
 def read_data(arg, *args, **kwargs):
@@ -34,10 +35,9 @@ def read_data(arg, *args, **kwargs):
             transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
         ])
     else:
-        # transform = None
         transform = transforms.Compose([
-            transforms.ToTensor()
-            # transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            transforms.ToTensor(),
+            #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
         ])
     
     dataset = torchvision.datasets.CIFAR10(root=path, train=not is_test, download=False, transform=transform)
@@ -109,7 +109,7 @@ optimizer = {
     #"method" : torch.optim.SGD,
     # "method" : torch.optim.RMSprop,
     "lr" : 1e-3,
-    "epochs" : 250,
+    "epochs" : 50,
     "batch_size" : 128,
     "amsgrad":True
 }
@@ -125,6 +125,7 @@ basecfg = {
     "out_path":datetime.now().strftime('%d-%m-%Y-%H:%M:%S'),
     "verbose":True,
     "store_model":False,
+    "local_mode":True
 }
 
 cuda_devices = [0]
@@ -139,6 +140,7 @@ models.append(
         "loss_function":weighted_cross_entropy_with_softmax,
         "transformer":
             transforms.Compose([
+                transforms.ToPILImage(),
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),

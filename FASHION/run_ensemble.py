@@ -17,15 +17,14 @@ import torchvision.transforms as transforms
 from scipy.io import loadmat
 from sklearn.metrics import make_scorer, accuracy_score
 
-sys.path.append('../submodules/deep-ensembles-v2/')
-from Utils import Flatten, weighted_cross_entropy, weighted_mse_loss, weighted_squared_hinge_loss, cov, weighted_cross_entropy_with_softmax, weighted_lukas_loss, Clamp, Scale
-from Models import SKLearnModel
-from BaggingClassifier import BaggingClassifier
-from DeepDecisionTreeClassifier import DeepDecisionTreeClassifier
-from BinarisedNeuralNetworks import BinaryConv2d, BinaryLinear, BinaryTanh
+from deep_ensembles_v2.Utils import Flatten, weighted_cross_entropy, weighted_mse_loss, weighted_squared_hinge_loss, cov, weighted_cross_entropy_with_softmax, weighted_lukas_loss, Clamp, Scale
 
-sys.path.append('../submodules/experiment_runner/')
-from experiment_runner import run_experiments
+from deep_ensembles_v2.Models import SKLearnModel
+from deep_ensembles_v2.BaggingClassifier import BaggingClassifier
+from deep_ensembles_v2.DeepDecisionTreeClassifier import DeepDecisionTreeClassifier
+from deep_ensembles_v2.BinarisedNeuralNetworks import BinaryConv2d, BinaryLinear, BinaryTanh
+
+from experiment_runner.experiment_runner import run_experiments
 
 def read_examples(path):
     f = gzip.open(path,'r') #'train-images-idx3-ubyte.gz'
@@ -149,8 +148,9 @@ basecfg = {
         'accuracy': make_scorer(accuracy_score, greater_is_better=True),
     },
     "out_path":datetime.now().strftime('%d-%m-%Y-%H:%M:%S'),
-    "verbose":False,
-    "store_model":False,
+    "verbose" : True,
+    "store_model" : False,
+    "local_mode" : True
 }
 
 cuda_devices = [0]
@@ -159,7 +159,7 @@ models = []
 models.append(
     {
         "model":SKLearnModel,
-        "base_estimator":partial(cnn_model, model_type="float",n_channels = 32, depth = 4),
+        "base_estimator":partial(cnn_model, model_type="binary",n_channels = 32, depth = 4),
         "eval_test":1,
         "optimizer":optimizer,
         "scheduler":scheduler,
@@ -182,20 +182,20 @@ models.append(
 #     }
 # )
 
-models.append(
-    {
-        "model":BaggingClassifier,
-        "base_estimator":partial(cnn_model, model_type="float",n_channels = 32, depth = 4),
-        "bootstrap":False,
-        "freeze_layers":True,
-        "n_estimators":5,
-        "x_test":None,
-        "y_test":None,
-        "optimizer":optimizer,
-        "scheduler":scheduler,
-        "loss_function":weighted_cross_entropy_with_softmax
-    }
-)
+# models.append(
+#     {
+#         "model":BaggingClassifier,
+#         "base_estimator":partial(cnn_model, model_type="float",n_channels = 32, depth = 4),
+#         "bootstrap":False,
+#         "freeze_layers":True,
+#         "n_estimators":5,
+#         "x_test":None,
+#         "y_test":None,
+#         "optimizer":optimizer,
+#         "scheduler":scheduler,
+#         "loss_function":weighted_cross_entropy_with_softmax
+#     }
+# )
 
 # models.append(
 #     {
