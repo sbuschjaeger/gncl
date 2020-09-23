@@ -135,7 +135,7 @@ optimizer = {
     # "method" : torch.optim.RMSprop,
     "lr" : 1e-3,
     "epochs" : 50,
-    "batch_size" : 128,
+    "batch_size" : 16,
     "amsgrad":True
 }
 

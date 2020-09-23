@@ -30,16 +30,17 @@ from experiment_runner.experiment_runner import run_experiments
 def read_data(arg, *args, **kwargs):
     path, is_test = arg
 
-    if is_test:
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-        ])
-    else:
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-        ])
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+    ])
+    
+    # if is_test:
+    # else:
+    #     transform = transforms.Compose([
+    #         transforms.ToTensor(),
+    #         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+    #     ])
     
     dataset = torchvision.datasets.CIFAR10(root=path, train=not is_test, download=False, transform=transform)
     loader = torch.utils.data.DataLoader(dataset, batch_size=len(dataset), shuffle=False, num_workers=4)
@@ -147,7 +148,7 @@ optimizer = {
     # "method" : torch.optim.RMSprop,
     "lr" : 1e-3,
     "epochs" : 50,
-    "batch_size" : 128,
+    "batch_size" : 1024,
     "amsgrad":True
 }
 
@@ -170,10 +171,10 @@ models = []
 
 models.append(
     {
-        # "model":SKLearnModel,
-        "model":SGDEnsembleClassifier,
-        "n_estimators":5,
-        "base_estimator": partial(vgg_model, model_type="float", n_layers=3, n_channels=128, width=512),
+        "model":SKLearnModel,
+        #"model":SGDEnsembleClassifier,
+        #"n_estimators":5,
+        "base_estimator": partial(vgg_model, model_type="binary", n_layers=3, n_channels=128, width=512),
         "optimizer":optimizer,
         "scheduler":scheduler,
         "eval_test":5,
@@ -184,7 +185,7 @@ models.append(
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+                #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
             ])
     }
 )

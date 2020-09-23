@@ -1,5 +1,7 @@
 *.tar.gz
+cifar-100-python.tar.gz.1
 cifar-10-batches-py/
+cifar-100-python/
 results.jsonl
 training.csv
 config.json
