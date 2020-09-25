@@ -16,10 +16,11 @@ import torchvision.transforms as transforms
 
 from sklearn.metrics import make_scorer, accuracy_score
 
-from deep_ensembles_v2.Utils import Flatten, weighted_cross_entropy, weighted_mse_loss, weighted_squared_hinge_loss, cov, weighted_cross_entropy_with_softmax, weighted_lukas_loss, Clamp, Scale
+from deep_ensembles_v2.Utils import Flatten, Clamp, Scale
+from deep_ensembles_v2.Losses import weighted_cross_entropy, weighted_mse_loss, weighted_squared_hinge_loss, weighted_cross_entropy_with_softmax, weighted_lukas_loss
 
 from deep_ensembles_v2.Models import SKLearnModel
-from deep_ensembles_v2.SGDEnsembleClassifier import SGDEnsembleClassifier
+from deep_ensembles_v2.SGDEnsembleClassifier import E2EEnsembleClassifier
 from deep_ensembles_v2.BaggingClassifier import BaggingClassifier
 from deep_ensembles_v2.GNCLClassifier import GNCLClassifier
 from deep_ensembles_v2.DeepDecisionTreeClassifier import DeepDecisionTreeClassifier
@@ -32,16 +33,16 @@ from experiment_runner.experiment_runner import run_experiments
 def read_data(arg, *args, **kwargs):
     path, is_test = arg
 
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-    ])
-    # if is_test:
-    # else:
-    #     transform = transforms.Compose([
-    #         transforms.ToTensor(),
-    #         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-    #     ])
+    if is_test:
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+        ])
+    else:
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            # transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+        ])
     
     dataset = torchvision.datasets.CIFAR100(root=path, train=not is_test, download=False, transform=transform)
     loader = torch.utils.data.DataLoader(dataset, batch_size=len(dataset), shuffle=False, num_workers=4)
@@ -140,7 +141,8 @@ def mobilenet_model(model_type, *args, **kwargs):
     model.extend( [
         nn.AvgPool2d(2),
         Flatten(),
-        LinearLayer(2048, 100)
+        LinearLayer(2048, 100),
+        #nn.Softmax()
     ] )
 
     return nn.Sequential(*model)
@@ -167,7 +169,7 @@ def mobilenet_model(model_type, *args, **kwargs):
 
 scheduler = {
     "method" : torch.optim.lr_scheduler.StepLR,
-    "step_size" : 20,
+    "step_size" : 30,
     "gamma": 0.5
 }
 
@@ -177,7 +179,7 @@ optimizer = {
     # "method" : torch.optim.RMSprop,
     "lr" : 1e-3,
     "epochs" : 100,
-    "batch_size" : 512,
+    "batch_size" : 128,
     "amsgrad":True
 }
 
@@ -199,33 +201,33 @@ basecfg = {
 cuda_devices = [0]
 models = []
 
-models.append(
-    {
-        "model":SKLearnModel,
-        #"model":SGDEnsembleClassifier,
-        #"n_estimators":2,
-        "base_estimator": partial(vgg_model, model_type="binary", n_layers=2, n_channels=32, width=None),
-        "optimizer":optimizer,
-        "scheduler":scheduler,
-        "eval_test":5,
-        "loss_function":weighted_cross_entropy_with_softmax,
-        # "transformer":
-        #     transforms.Compose([
-        #         transforms.ToPILImage(),
-        #         transforms.RandomCrop(32, padding=4),
-        #         transforms.RandomHorizontalFlip(),
-        #         transforms.ToTensor(),
-        #         #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-        #     ])
-    }
-)
+# models.append(
+#     {
+#         "model":SKLearnModel,
+#         #"model":SGDEnsembleClassifier,
+#         #"n_estimators":2,
+#         "base_estimator": partial(vgg_model, model_type="binary", n_layers=2, n_channels=32, width=None),
+#         "optimizer":optimizer,
+#         "scheduler":scheduler,
+#         "eval_test":5,
+#         "loss_function":weighted_cross_entropy_with_softmax,
+#         # "transformer":
+#         #     transforms.Compose([
+#         #         transforms.ToPILImage(),
+#         #         transforms.RandomCrop(32, padding=4),
+#         #         transforms.RandomHorizontalFlip(),
+#         #         transforms.ToTensor(),
+#         #         #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+#         #     ])
+#     }
+# )
 
 # models.append(
 #     {
 #         "model":SGDEnsembleClassifier,
 #         "n_estimators":16,
 #         #"base_estimator": partial(vgg_model, model_type="float", n_layers=2, n_channels=32, width=None),
-#         "base_estimator": partial(convnet_model, model_type="float"),
+#         "base_estimator": partial(mobilenet_model, model_type="float"),
 #         "optimizer":optimizer,
 #         "scheduler":scheduler,
 #         "eval_test":5,
@@ -243,10 +245,10 @@ models.append(
 
 # models.append(
 #     {
-#         "model":BaggingClassifier,
-#         "n_estimators":16,
+#         "model":SKLearnModel,
+#         # "n_estimators":16,
 #         #"base_estimator": partial(vgg_model, model_type="float", n_layers=2, n_channels=32, width=None),
-#         "base_estimator": partial(convnet_model, model_type="float"),
+#         "base_estimator": partial(mobilenet_model, model_type="float"),
 #         "optimizer":optimizer,
 #         "scheduler":scheduler,
 #         "eval_test":5,
@@ -257,19 +259,20 @@ models.append(
 #                 transforms.RandomCrop(32, padding=4),
 #                 transforms.RandomHorizontalFlip(),
 #                 transforms.ToTensor(),
-#                 #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+#                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
 #             ])
 #     }
 # )
 
-# for l_reg in [1e-3, 1e-2, 1e-1]:
+# for l_reg in [0, 1e-4,1e-3]:
 #     models.append(
 #         {
 #             "model":GNCLClassifier,
 #             "n_estimators":16,
 #             "l_reg":l_reg,
+#             "combination_type":"softmax",
 #             #"base_estimator": partial(vgg_model, model_type="float", n_layers=2, n_channels=32, width=None),
-#             "base_estimator": partial(convnet_model, model_type="float"),
+#             "base_estimator": partial(mobilenet_model, model_type="float"),
 #             "optimizer":optimizer,
 #             "scheduler":scheduler,
 #             "eval_test":5,
@@ -280,9 +283,55 @@ models.append(
 #                     transforms.RandomCrop(32, padding=4),
 #                     transforms.RandomHorizontalFlip(),
 #                     transforms.ToTensor(),
-#                     #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+#                     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
 #                 ])
 #         }
 #     )
+
+# models.append(
+#     {
+#         "model":BaggingClassifier,
+#         "n_estimators":16,
+#         "train_method":"fast",
+#         #"base_estimator": partial(vgg_model, model_type="float", n_layers=2, n_channels=32, width=None),
+#         "base_estimator": partial(mobilenet_model, model_type="float"),
+#         "optimizer":optimizer,
+#         "scheduler":scheduler,
+#         "eval_test":5,
+#         "loss_function":weighted_cross_entropy_with_softmax,
+#         "transformer":
+#             transforms.Compose([
+#                 transforms.ToPILImage(),
+#                 transforms.RandomCrop(32, padding=4),
+#                 transforms.RandomHorizontalFlip(),
+#                 transforms.ToTensor(),
+#                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+#             ])
+#     }
+# )
+
+models.append(
+    {
+        "model":E2EEnsembleClassifier,
+        "n_estimators":16,
+        # "l_reg":l_reg,
+        # "combination_type":"softmax",
+        #"base_estimator": partial(vgg_model, model_type="float", n_layers=2, n_channels=32, width=None),
+        "base_estimator": partial(mobilenet_model, model_type="float"),
+        "optimizer":optimizer,
+        "scheduler":scheduler,
+        "eval_test":5,
+        "loss_function":weighted_cross_entropy_with_softmax,
+        "transformer":
+            transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            ])
+    }
+)
+
 
 run_experiments(basecfg, models, cuda_devices = cuda_devices, n_cores=len(cuda_devices))

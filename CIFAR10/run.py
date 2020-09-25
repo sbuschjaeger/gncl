@@ -30,17 +30,16 @@ from experiment_runner.experiment_runner import run_experiments
 def read_data(arg, *args, **kwargs):
     path, is_test = arg
 
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-    ])
-    
-    # if is_test:
-    # else:
-    #     transform = transforms.Compose([
-    #         transforms.ToTensor(),
-    #         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-    #     ])
+    if is_test:
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+        ])
+    else:
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+        ])
     
     dataset = torchvision.datasets.CIFAR10(root=path, train=not is_test, download=False, transform=transform)
     loader = torch.utils.data.DataLoader(dataset, batch_size=len(dataset), shuffle=False, num_workers=4)
