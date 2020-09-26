@@ -16,12 +16,15 @@ import torchvision.transforms as transforms
 
 from sklearn.metrics import make_scorer, accuracy_score
 
-from deep_ensembles_v2.Utils import Flatten, weighted_cross_entropy, weighted_mse_loss, weighted_squared_hinge_loss, cov, weighted_cross_entropy_with_softmax, weighted_lukas_loss, Clamp, Scale
+from deep_ensembles_v2.Utils import Flatten, cov, Clamp, Scale
 
 from deep_ensembles_v2.Models import SKLearnModel
-from deep_ensembles_v2.SGDEnsembleClassifier import SGDEnsembleClassifier
+from deep_ensembles_v2.E2EEnsembleClassifier import E2EEnsembleClassifier
 from deep_ensembles_v2.BaggingClassifier import BaggingClassifier
-from deep_ensembles_v2.DeepDecisionTreeClassifier import DeepDecisionTreeClassifier
+from deep_ensembles_v2.GNCLClassifier import GNCLClassifier
+from deep_ensembles_v2.GradientBoostedNets import GradientBoostedNets
+from deep_ensembles_v2.StackingClassifier import StackingClassifier
+# from deep_ensembles_v2.DeepDecisionTreeClassifier import DeepDecisionTreeClassifier
 from deep_ensembles_v2.BinarisedNeuralNetworks import BinaryConv2d, BinaryLinear, BinaryTanh
 
 from experiment_runner.experiment_runner import run_experiments
@@ -38,7 +41,7 @@ def read_data(arg, *args, **kwargs):
     else:
         transform = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            # transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
         ])
     
     dataset = torchvision.datasets.CIFAR10(root=path, train=not is_test, download=False, transform=transform)
@@ -102,38 +105,47 @@ def vgg_model(model_type, n_channels=16, n_layers=2, width=512, *args, **kwargs)
     model = filter(None, model)
     return nn.Sequential(*model)
 
-    # return nn.Sequential(
-    #     ConvLayer(3, 128, kernel_size=3, padding=1, stride = 1),
-    #     nn.BatchNorm2d(128),
-    #     Activation(),
-    #     ConvLayer(128, 128, kernel_size=3, padding=1, stride = 1),
-    #     nn.MaxPool2d(kernel_size=2,stride=2),
-    #     nn.BatchNorm2d(128),
-    #     Activation(),
+def mobilenet_model(model_type, *args, **kwargs):
+    if "binary" in model_type:
+        ConvLayer = BinaryConv2d
+        LinearLayer = BinaryLinear
+        Activation = BinaryTanh
+    else:
+        ConvLayer = nn.Conv2d
+        LinearLayer = nn.Linear
+        Activation = nn.ReLU
 
-    #     ConvLayer(128, 256, kernel_size=3, padding=1, stride = 1),
-    #     nn.BatchNorm2d(256),
-    #     Activation(),
-    #     ConvLayer(256, 256, kernel_size=3, padding=1, stride = 1),
-    #     nn.MaxPool2d(kernel_size=2,stride=2),
-    #     nn.BatchNorm2d(256),
-    #     Activation(),
+    # https://modelzoo.co/model/pytorch-mobilenet
+    def conv_bn(inp, oup, stride):
+        return [
+            ConvLayer(inp, oup, 3, stride, 1, bias=False),
+            nn.BatchNorm2d(oup),
+            Activation()
+        ]
 
-    #     ConvLayer(256, 512, kernel_size=3, padding=1, stride = 1),
-    #     nn.BatchNorm2d(512),
-    #     Activation(),
-    #     ConvLayer(512, 512, kernel_size=3, padding=1, stride = 1),
-    #     nn.MaxPool2d(kernel_size=2,stride=2),
-    #     nn.BatchNorm2d(512),
-    #     Activation(),
+    def conv_dw(inp, oup, stride):
+        return [
+            ConvLayer(inp, inp, 3, stride, 1, groups=inp, bias=False),
+            nn.BatchNorm2d(inp),
+            Activation(),
+            ConvLayer(inp, oup, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(oup),
+            Activation()
+        ]
+    
+    model = []
+    model.extend(conv_bn(  3,  32, 2))
+    model.extend(conv_dw( 32,  64, 1))
+    model.extend(conv_dw( 64, 128, 2))
 
-    #     Flatten(),
-    #     LinearLayer(8192, 1024),
-    #     nn.BatchNorm1d(1024),
-    #     Activation(),
-    #     LinearLayer(1024, 10),
-    #     Scale()
-    # )
+    model.extend( [
+        nn.AvgPool2d(2),
+        Flatten(),
+        LinearLayer(2048, 10),
+        #nn.Softmax()
+    ] )
+
+    return nn.Sequential(*model)
 
 scheduler = {
     "method" : torch.optim.lr_scheduler.StepLR,
@@ -147,7 +159,7 @@ optimizer = {
     # "method" : torch.optim.RMSprop,
     "lr" : 1e-3,
     "epochs" : 50,
-    "batch_size" : 1024,
+    "batch_size" : 128,
     "amsgrad":True
 }
 
@@ -168,25 +180,133 @@ basecfg = {
 cuda_devices = [0]
 models = []
 
+# models.append(
+#     {
+#         "model":SKLearnModel,
+#         #"model":SGDEnsembleClassifier,
+#         #"n_estimators":5,
+#         "base_estimator": partial(mobilenet_model, model_type="float"),
+#         "optimizer":optimizer,
+#         "scheduler":scheduler,
+#         "eval_test":5,
+#         "loss_function":nn.CrossEntropyLoss(reduction="none"),
+#         "transformer":
+#             transforms.Compose([
+#                 transforms.ToPILImage(),
+#                 transforms.RandomCrop(32, padding=4),
+#                 transforms.RandomHorizontalFlip(),
+#                 transforms.ToTensor(),
+#                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+#             ])
+#     }
+# )
+
+# models.append(
+#     {
+#         "model": E2EEnsembleClassifier,
+#         "n_estimators":5,
+#         "base_estimator": partial(mobilenet_model, model_type="float"),
+#         "optimizer":optimizer,
+#         "scheduler":scheduler,
+#         "eval_test":5,
+#         "loss_function":nn.CrossEntropyLoss(reduction="none"),
+#         "transformer":
+#             transforms.Compose([
+#                 transforms.ToPILImage(),
+#                 transforms.RandomCrop(32, padding=4),
+#                 transforms.RandomHorizontalFlip(),
+#                 transforms.ToTensor(),
+#                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+#             ])
+#     }
+# )
+
+# models.append(
+#     {
+#         "model": BaggingClassifier,
+#         "train_method":"fast",
+#         "n_estimators":5,
+#         "base_estimator": partial(mobilenet_model, model_type="float"),
+#         "optimizer":optimizer,
+#         "scheduler":scheduler,
+#         "eval_test":5,
+#         "loss_function":nn.CrossEntropyLoss(reduction="none"),
+#         "transformer":
+#             transforms.Compose([
+#                 transforms.ToPILImage(),
+#                 transforms.RandomCrop(32, padding=4),
+#                 transforms.RandomHorizontalFlip(),
+#                 transforms.ToTensor(),
+#                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+#             ])
+#     }
+# )
+
+# models.append(
+#     {
+#         "model": GNCLClassifier,
+#         "l_reg":1e-2,
+#         "n_estimators":5,
+#         "base_estimator": partial(mobilenet_model, model_type="float"),
+#         "optimizer":optimizer,
+#         "scheduler":scheduler,
+#         "eval_test":5,
+#         "loss_function":nn.CrossEntropyLoss(reduction="none"),
+#         "transformer":
+#             transforms.Compose([
+#                 transforms.ToPILImage(),
+#                 transforms.RandomCrop(32, padding=4),
+#                 transforms.RandomHorizontalFlip(),
+#                 transforms.ToTensor(),
+#                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+#             ])
+#     }
+# )
+
 models.append(
     {
-        "model":SKLearnModel,
-        #"model":SGDEnsembleClassifier,
-        #"n_estimators":5,
-        "base_estimator": partial(vgg_model, model_type="binary", n_layers=3, n_channels=128, width=512),
+        "model": GradientBoostedNets,
+        "n_estimators":5,
+        "base_estimator": partial(mobilenet_model, model_type="float"),
         "optimizer":optimizer,
         "scheduler":scheduler,
         "eval_test":5,
-        "loss_function":weighted_cross_entropy_with_softmax,
+        "loss_function":nn.CrossEntropyLoss(reduction="none"),
         "transformer":
             transforms.Compose([
                 transforms.ToPILImage(),
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
             ])
     }
 )
+
+# def linear_classifier(n_estimators):
+#     return nn.Sequential(
+#         torch.nn.Linear(10*n_estimators,10)
+#     )
+
+# models.append(
+#     {
+#         "model": StackingClassifier,
+#         "n_estimators":5,
+#         "base_estimator": partial(mobilenet_model, model_type="float"),
+#         "classifier" : partial(linear_classifier, n_estimators=5),
+#         "optimizer":optimizer,
+#         "scheduler":scheduler,
+#         "eval_test":1,
+#         "loss_function":nn.CrossEntropyLoss(reduction="none"),
+#         "transformer":
+#             transforms.Compose([
+#                 transforms.ToPILImage(),
+#                 transforms.RandomCrop(32, padding=4),
+#                 transforms.RandomHorizontalFlip(),
+#                 transforms.ToTensor(),
+#                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+#             ])
+#     }
+# )
 
 run_experiments(basecfg, models, cuda_devices = cuda_devices, n_cores=len(cuda_devices))

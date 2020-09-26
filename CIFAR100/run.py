@@ -20,7 +20,7 @@ from deep_ensembles_v2.Utils import Flatten, Clamp, Scale
 from deep_ensembles_v2.Losses import weighted_cross_entropy, weighted_mse_loss, weighted_squared_hinge_loss, weighted_cross_entropy_with_softmax, weighted_lukas_loss
 
 from deep_ensembles_v2.Models import SKLearnModel
-from deep_ensembles_v2.SGDEnsembleClassifier import E2EEnsembleClassifier
+from deep_ensembles_v2.E2EEnsembleClassifier import E2EEnsembleClassifier
 from deep_ensembles_v2.BaggingClassifier import BaggingClassifier
 from deep_ensembles_v2.GNCLClassifier import GNCLClassifier
 from deep_ensembles_v2.DeepDecisionTreeClassifier import DeepDecisionTreeClassifier
@@ -243,72 +243,72 @@ models = []
 #     }
 # )
 
-# models.append(
-#     {
-#         "model":SKLearnModel,
-#         # "n_estimators":16,
-#         #"base_estimator": partial(vgg_model, model_type="float", n_layers=2, n_channels=32, width=None),
-#         "base_estimator": partial(mobilenet_model, model_type="float"),
-#         "optimizer":optimizer,
-#         "scheduler":scheduler,
-#         "eval_test":5,
-#         "loss_function":weighted_cross_entropy_with_softmax,
-#         "transformer":
-#             transforms.Compose([
-#                 transforms.ToPILImage(),
-#                 transforms.RandomCrop(32, padding=4),
-#                 transforms.RandomHorizontalFlip(),
-#                 transforms.ToTensor(),
-#                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-#             ])
-#     }
-# )
+for l_reg in [1e-3, 1e-4, 0]:
+    models.append(
+        {
+            "model":GNCLClassifier,
+            "n_estimators":16,
+            "l_reg":l_reg,
+            "combination_type":"softmax",
+            #"base_estimator": partial(vgg_model, model_type="float", n_layers=2, n_channels=32, width=None),
+            "base_estimator": partial(mobilenet_model, model_type="float"),
+            "optimizer":optimizer,
+            "scheduler":scheduler,
+            "eval_test":5,
+            "loss_function":nn.CrossEntropyLoss(reduction="none"),
+            "transformer":
+                transforms.Compose([
+                    transforms.ToPILImage(),
+                    transforms.RandomCrop(32, padding=4),
+                    transforms.RandomHorizontalFlip(),
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+                ])
+        }
+    )
 
-# for l_reg in [0, 1e-4,1e-3]:
-#     models.append(
-#         {
-#             "model":GNCLClassifier,
-#             "n_estimators":16,
-#             "l_reg":l_reg,
-#             "combination_type":"softmax",
-#             #"base_estimator": partial(vgg_model, model_type="float", n_layers=2, n_channels=32, width=None),
-#             "base_estimator": partial(mobilenet_model, model_type="float"),
-#             "optimizer":optimizer,
-#             "scheduler":scheduler,
-#             "eval_test":5,
-#             "loss_function":weighted_cross_entropy_with_softmax,
-#             "transformer":
-#                 transforms.Compose([
-#                     transforms.ToPILImage(),
-#                     transforms.RandomCrop(32, padding=4),
-#                     transforms.RandomHorizontalFlip(),
-#                     transforms.ToTensor(),
-#                     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-#                 ])
-#         }
-#     )
+models.append(
+    {
+        "model":SKLearnModel,
+        # "n_estimators":16,
+        #"base_estimator": partial(vgg_model, model_type="float", n_layers=2, n_channels=32, width=None),
+        "base_estimator": partial(mobilenet_model, model_type="float"),
+        "optimizer":optimizer,
+        "scheduler":scheduler,
+        "eval_test":5,
+        "loss_function":nn.CrossEntropyLoss(reduction="none"),
+        "transformer":
+            transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            ])
+    }
+)
 
-# models.append(
-#     {
-#         "model":BaggingClassifier,
-#         "n_estimators":16,
-#         "train_method":"fast",
-#         #"base_estimator": partial(vgg_model, model_type="float", n_layers=2, n_channels=32, width=None),
-#         "base_estimator": partial(mobilenet_model, model_type="float"),
-#         "optimizer":optimizer,
-#         "scheduler":scheduler,
-#         "eval_test":5,
-#         "loss_function":weighted_cross_entropy_with_softmax,
-#         "transformer":
-#             transforms.Compose([
-#                 transforms.ToPILImage(),
-#                 transforms.RandomCrop(32, padding=4),
-#                 transforms.RandomHorizontalFlip(),
-#                 transforms.ToTensor(),
-#                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-#             ])
-#     }
-# )
+models.append(
+    {
+        "model":BaggingClassifier,
+        "n_estimators":16,
+        "train_method":"fast",
+        #"base_estimator": partial(vgg_model, model_type="float", n_layers=2, n_channels=32, width=None),
+        "base_estimator": partial(mobilenet_model, model_type="float"),
+        "optimizer":optimizer,
+        "scheduler":scheduler,
+        "eval_test":5,
+        "loss_function":nn.CrossEntropyLoss(reduction="none"),
+        "transformer":
+            transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            ])
+    }
+)
 
 models.append(
     {
@@ -321,7 +321,7 @@ models.append(
         "optimizer":optimizer,
         "scheduler":scheduler,
         "eval_test":5,
-        "loss_function":weighted_cross_entropy_with_softmax,
+        "loss_function":nn.CrossEntropyLoss(reduction="none"),
         "transformer":
             transforms.Compose([
                 transforms.ToPILImage(),
