@@ -9,6 +9,7 @@ dependencies:
   - pandas
   - pip
   - setuptools
+  - jupyter # Technically not a dependency, but still nice to have for browsing results
   # - cudatoolkit=10.1  # Make sure this matches the currently installed cuda version, e.g. via nvidia-smi
   # - pytorch=1.6 # For some reason just installing "pytorch" defaults to 1.4 instead of 1.6, so we pin it here.
   # - torchvision

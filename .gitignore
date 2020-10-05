@@ -11,3 +11,4 @@ config.json
 *.npy
 *.gz
 .vscode/
+*.pyc

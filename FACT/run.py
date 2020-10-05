@@ -33,20 +33,6 @@ from experiment_runner import run_experiments
 def read_data(arg ,*args, **kwargs):
     path, is_test = arg
     X, Y = np.load(path + "/x_train.npy", allow_pickle=True), np.load(path + "/y_train.npy", allow_pickle=True)
-    
-    # print("Checking for blank images")
-    # num_zero_image = sum([1 if np.all(x.reshape(-1) == 0) else 0 for x in X])
-    # avg_num_zeros = np.array([np.sum(x.reshape(-1) <= 1e-7) for x in X])
-    # avg_num_zeros = np.mean(avg_num_zeros)
-    # print("Num blank images: {}".format(num_zero_image))
-    # print("Avg num zeros per images: {}".format(avg_num_zeros))
-
-    # N = X.shape[0]
-    # width = X.shape[1]
-    # height = X.shape[2]
-    # scaler = QuantileTransformer(output_distribution="uniform",random_state=42)
-    # print("BEFORE NORMALISATION:", X.shape)
-    # scaler.fit(X.reshape(N,width*height))
 
     if is_test:
         X, Y = np.load(path + "/x_test.npy", allow_pickle=True), np.load(path + "/y_test.npy", allow_pickle=True)

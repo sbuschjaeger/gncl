@@ -180,88 +180,88 @@ basecfg = {
 cuda_devices = [0]
 models = []
 
-# models.append(
-#     {
-#         "model":SKLearnModel,
-#         #"model":SGDEnsembleClassifier,
-#         #"n_estimators":5,
-#         "base_estimator": partial(mobilenet_model, model_type="float"),
-#         "optimizer":optimizer,
-#         "scheduler":scheduler,
-#         "eval_test":5,
-#         "loss_function":nn.CrossEntropyLoss(reduction="none"),
-#         "transformer":
-#             transforms.Compose([
-#                 transforms.ToPILImage(),
-#                 transforms.RandomCrop(32, padding=4),
-#                 transforms.RandomHorizontalFlip(),
-#                 transforms.ToTensor(),
-#                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-#             ])
-#     }
-# )
+models.append(
+    {
+        "model":SKLearnModel,
+        #"model":SGDEnsembleClassifier,
+        #"n_estimators":5,
+        "base_estimator": partial(mobilenet_model, model_type="float"),
+        "optimizer":optimizer,
+        "scheduler":scheduler,
+        "eval_test":5,
+        "loss_function":nn.CrossEntropyLoss(reduction="none"),
+        "transformer":
+            transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            ])
+    }
+)
 
-# models.append(
-#     {
-#         "model": E2EEnsembleClassifier,
-#         "n_estimators":5,
-#         "base_estimator": partial(mobilenet_model, model_type="float"),
-#         "optimizer":optimizer,
-#         "scheduler":scheduler,
-#         "eval_test":5,
-#         "loss_function":nn.CrossEntropyLoss(reduction="none"),
-#         "transformer":
-#             transforms.Compose([
-#                 transforms.ToPILImage(),
-#                 transforms.RandomCrop(32, padding=4),
-#                 transforms.RandomHorizontalFlip(),
-#                 transforms.ToTensor(),
-#                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-#             ])
-#     }
-# )
+models.append(
+    {
+        "model": E2EEnsembleClassifier,
+        "n_estimators":5,
+        "base_estimator": partial(mobilenet_model, model_type="float"),
+        "optimizer":optimizer,
+        "scheduler":scheduler,
+        "eval_test":5,
+        "loss_function":nn.CrossEntropyLoss(reduction="none"),
+        "transformer":
+            transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            ])
+    }
+)
 
-# models.append(
-#     {
-#         "model": BaggingClassifier,
-#         "train_method":"fast",
-#         "n_estimators":5,
-#         "base_estimator": partial(mobilenet_model, model_type="float"),
-#         "optimizer":optimizer,
-#         "scheduler":scheduler,
-#         "eval_test":5,
-#         "loss_function":nn.CrossEntropyLoss(reduction="none"),
-#         "transformer":
-#             transforms.Compose([
-#                 transforms.ToPILImage(),
-#                 transforms.RandomCrop(32, padding=4),
-#                 transforms.RandomHorizontalFlip(),
-#                 transforms.ToTensor(),
-#                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-#             ])
-#     }
-# )
+models.append(
+    {
+        "model": BaggingClassifier,
+        "train_method":"fast",
+        "n_estimators":5,
+        "base_estimator": partial(mobilenet_model, model_type="float"),
+        "optimizer":optimizer,
+        "scheduler":scheduler,
+        "eval_test":5,
+        "loss_function":nn.CrossEntropyLoss(reduction="none"),
+        "transformer":
+            transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            ])
+    }
+)
 
-# models.append(
-#     {
-#         "model": GNCLClassifier,
-#         "l_reg":1e-2,
-#         "n_estimators":5,
-#         "base_estimator": partial(mobilenet_model, model_type="float"),
-#         "optimizer":optimizer,
-#         "scheduler":scheduler,
-#         "eval_test":5,
-#         "loss_function":nn.CrossEntropyLoss(reduction="none"),
-#         "transformer":
-#             transforms.Compose([
-#                 transforms.ToPILImage(),
-#                 transforms.RandomCrop(32, padding=4),
-#                 transforms.RandomHorizontalFlip(),
-#                 transforms.ToTensor(),
-#                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-#             ])
-#     }
-# )
+models.append(
+    {
+        "model": GNCLClassifier,
+        "l_reg":1e-2,
+        "n_estimators":5,
+        "base_estimator": partial(mobilenet_model, model_type="float"),
+        "optimizer":optimizer,
+        "scheduler":scheduler,
+        "eval_test":5,
+        "loss_function":nn.CrossEntropyLoss(reduction="none"),
+        "transformer":
+            transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            ])
+    }
+)
 
 models.append(
     {
@@ -283,30 +283,30 @@ models.append(
     }
 )
 
-# def linear_classifier(n_estimators):
-#     return nn.Sequential(
-#         torch.nn.Linear(10*n_estimators,10)
-#     )
+def linear_classifier(n_estimators):
+    return nn.Sequential(
+        torch.nn.Linear(10*n_estimators,10)
+    )
 
-# models.append(
-#     {
-#         "model": StackingClassifier,
-#         "n_estimators":5,
-#         "base_estimator": partial(mobilenet_model, model_type="float"),
-#         "classifier" : partial(linear_classifier, n_estimators=5),
-#         "optimizer":optimizer,
-#         "scheduler":scheduler,
-#         "eval_test":1,
-#         "loss_function":nn.CrossEntropyLoss(reduction="none"),
-#         "transformer":
-#             transforms.Compose([
-#                 transforms.ToPILImage(),
-#                 transforms.RandomCrop(32, padding=4),
-#                 transforms.RandomHorizontalFlip(),
-#                 transforms.ToTensor(),
-#                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-#             ])
-#     }
-# )
+models.append(
+    {
+        "model": StackingClassifier,
+        "n_estimators":5,
+        "base_estimator": partial(mobilenet_model, model_type="float"),
+        "classifier" : partial(linear_classifier, n_estimators=5),
+        "optimizer":optimizer,
+        "scheduler":scheduler,
+        "eval_test":1,
+        "loss_function":nn.CrossEntropyLoss(reduction="none"),
+        "transformer":
+            transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            ])
+    }
+)
 
 run_experiments(basecfg, models, cuda_devices = cuda_devices, n_cores=len(cuda_devices))
