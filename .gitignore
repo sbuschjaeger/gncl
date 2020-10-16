@@ -12,3 +12,6 @@ config.json
 *.gz
 .vscode/
 *.pyc
+*.pdf
+**/raw/*
+*.pt

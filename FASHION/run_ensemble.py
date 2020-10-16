@@ -3,6 +3,7 @@
 import sys
 import pickle
 import gzip
+import os
 from datetime import datetime
 from functools import partial
 
@@ -19,6 +20,7 @@ from torch import nn
 from torch.autograd import Variable
 import torchvision
 import torchvision.transforms as transforms
+from torchsummary import summary
 
 from sklearn.metrics import make_scorer, accuracy_score
 
@@ -36,36 +38,25 @@ from deep_ensembles_v2.Utils import pytorch_total_params, apply_in_batches, Tran
 
 from experiment_runner.experiment_runner import run_experiments
 
-def read_examples(path):
-    f = gzip.open(path,'r') #'train-images-idx3-ubyte.gz'
-    image_size = 28
+#sys.path.append("..")
+from Metrics import avg_accurcay,diversity,avg_loss,loss
+#from MobileNetV3 import MobileNetV3
 
-    f.read(16)
-    #buf = f.read(image_size * image_size * N)
-    buf = f.read()
-    data = np.frombuffer(buf, dtype=np.uint8).astype(np.float32)
-    N = int(len(data) / (image_size*image_size))
-    data = data.reshape(N, 1, image_size, image_size)
-    f.close()
-    return data
-
-def read_targets(path):
-    f = gzip.open(path,'r')
-    f.read(8)
-    #buf = f.read(1 * N)
-    buf = f.read()
-    data = np.frombuffer(buf, dtype=np.uint8).astype(np.int_)
-    f.close()
-    return data
 
 def read_data(arg, *args, **kwargs):
     path, is_test = arg
-    if is_test:
-        return read_examples(path + "/t10k-images-idx3-ubyte.gz"), read_targets(path + "/t10k-labels-idx1-ubyte.gz")
-    else:
-        return read_examples(path + "/train-images-idx3-ubyte.gz"), read_targets(path + "/train-labels-idx1-ubyte.gz")
+    transform = transforms.Compose([
+        transforms.ToTensor()
+    ])
+    dataset = torchvision.datasets.FashionMNIST(root=path, train=not is_test, download=True, transform=transform)
+    loader = torch.utils.data.DataLoader(dataset, batch_size=len(dataset), shuffle=False, num_workers=4)
 
-def vgg_model(model_type, n_channels = 16, depth = 2, *args, **kwargs):
+    X = next(iter(loader))[0].numpy()
+    Y = next(iter(loader))[1].numpy()
+
+    return X,Y 
+
+def vgg_model(model_type, hidden_size = 1024, n_channels = 16, depth = 2, *args, **kwargs):
     if "binary" in model_type:
         ConvLayer = BinaryConv2d
         LinearLayer = BinaryLinear
@@ -95,17 +86,17 @@ def vgg_model(model_type, n_channels = 16, depth = 2, *args, **kwargs):
     elif depth == 2:
         lin_size = 98*n_channels
     elif depth == 3:
-        lin_size = 75*n_channels
+        lin_size = 27*n_channels
     else:
         lin_size = 4*n_channels
 
     model.extend(
         [
             Flatten(),
-            LinearLayer(lin_size, 1024),
-            nn.BatchNorm1d(1024),
+            LinearLayer(lin_size, hidden_size),
+            nn.BatchNorm1d(hidden_size),
             Activation(),
-            LinearLayer(1024, 10)
+            LinearLayer(hidden_size, 10)
         ]
     )
 
@@ -115,207 +106,6 @@ def vgg_model(model_type, n_channels = 16, depth = 2, *args, **kwargs):
     model = filter(None, model)
     return nn.Sequential(*model)
 
-def mobilenet_model(model_type, *args, **kwargs):
-    if "binary" in model_type:
-        ConvLayer = BinaryConv2d
-        LinearLayer = BinaryLinear
-        Activation = BinaryTanh
-    else:
-        ConvLayer = nn.Conv2d
-        LinearLayer = nn.Linear
-        Activation = nn.ReLU
-
-    # https://modelzoo.co/model/pytorch-mobilenet
-    def conv_bn(inp, oup, stride):
-        return [
-            ConvLayer(inp, oup, 3, stride, 1, bias=False),
-            nn.BatchNorm2d(oup),
-            Activation()
-        ]
-
-    def conv_dw(inp, oup, stride):
-        return [
-            ConvLayer(inp, inp, 3, stride, 1, groups=inp, bias=False),
-            nn.BatchNorm2d(inp),
-            Activation(),
-            ConvLayer(inp, oup, 1, 1, 0, bias=False),
-            nn.BatchNorm2d(oup),
-            Activation()
-        ]
-    
-    model = []
-    model.extend(conv_bn(  1,  32, 2))
-    model.extend(conv_dw( 32,  64, 1))
-    model.extend(conv_dw( 64, 128, 2))
-    model.extend(conv_dw(128, 128, 1))
-    model.extend(conv_dw(128, 256, 2))
-    model.extend(conv_dw(256, 256, 1))
-    model.extend(conv_dw(256, 512, 2))
-    
-    model.extend( [
-        nn.AvgPool2d(2),
-        Flatten(),
-        None if not "binary" in model_type else nn.BatchNorm1d(512),
-        LinearLayer(512, 10),
-        None if not "binary" in model_type else Scale()
-        #nn.Softmax()
-    ] )
-
-    return nn.Sequential(*model)
-    # return nn.Sequential(
-    #     conv_bn(  3,  32, 2), 
-    #     conv_dw( 32,  64, 1),
-    #     conv_dw( 64, 128, 2),
-    #     # conv_dw(128, 128, 1),
-    #     # conv_dw(128, 256, 2),
-    #     # conv_dw(256, 256, 1),
-    #     # conv_dw(256, 512, 2),
-    #     # conv_dw(512, 512, 1),
-    #     # conv_dw(512, 512, 1),
-    #     # conv_dw(512, 512, 1),
-    #     # conv_dw(512, 512, 1),
-    #     # conv_dw(512, 512, 1),
-    #     # conv_dw(512, 1024, 2),
-    #     # conv_dw(1024, 1024, 1),
-    #     nn.AvgPool2d(7),
-    #     Flatten(),
-    #     LinearLayer(1024, 100)
-    # )
-    #self.fc = nn.Linear(1024, 1000)
-
-def diversity(model, x, y):
-    # This is basically a copy/paste from the GNCLClasifier regularizer, which can also be used for 
-    # other classifier. I tried to do it with numpy first and I think it should work but I did not 
-    # really understand numpy's bmm variant, so I opted for the safe route here. 
-    # Also, pytorch seems a little faster due to gpu support
-    if not hasattr(model, "estimators_"):
-        return 0
-    model.eval()
-    
-    x_tensor = torch.tensor(x)
-    y_tensor = torch.tensor(y)
-    dataset = TransformTensorDataset(x_tensor, y_tensor, transform=None)
-    test_loader = torch.utils.data.DataLoader(dataset, batch_size = model.batch_size)
-    
-    diversities = []
-    for batch in test_loader:
-        data, target = batch[0], batch[1]
-        data, target = data.cuda(), target.cuda()
-        data, target = Variable(data), Variable(target)
-
-        with torch.no_grad():
-            f_bar, base_preds = model.forward_with_base(data)
-        
-        if isinstance(model.loss_function, nn.MSELoss): 
-            n_classes = f_bar.shape[1]
-            n_preds = f_bar.shape[0]
-
-            eye_matrix = torch.eye(n_classes).repeat(n_preds, 1, 1).cuda()
-            D = 2.0*eye_matrix
-        elif isinstance(model.loss_function, nn.NLLLoss):
-            n_classes = f_bar.shape[1]
-            n_preds = f_bar.shape[0]
-            D = torch.eye(n_classes).repeat(n_preds, 1, 1).cuda()
-            target_one_hot = torch.nn.functional.one_hot(target, num_classes = n_classes).type(torch.cuda.FloatTensor)
-
-            eps = 1e-7
-            diag_vector = target_one_hot*(1.0/(f_bar**2+eps))
-            D.diagonal(dim1=-2, dim2=-1).copy_(diag_vector)
-        elif isinstance(model.loss_function, nn.CrossEntropyLoss):
-            n_preds = f_bar.shape[0]
-            n_classes = f_bar.shape[1]
-            f_bar_softmax = nn.functional.softmax(f_bar,dim=1)
-            D = -1.0*torch.bmm(f_bar_softmax.unsqueeze(2), f_bar_softmax.unsqueeze(1))
-            diag_vector = f_bar_softmax*(1.0-f_bar_softmax)
-            D.diagonal(dim1=-2, dim2=-1).copy_(diag_vector)
-        else:
-            D = torch.tensor(1.0)
-
-        batch_diversities = []
-        for pred in base_preds:
-            diff = pred - f_bar 
-            covar = torch.bmm(diff.unsqueeze(1), torch.bmm(D, diff.unsqueeze(2))).squeeze()
-            div = 1.0/model.n_estimators * 0.5 * covar
-            batch_diversities.append(div)
-
-        diversities.append(torch.stack(batch_diversities, dim = 1))
-    div = torch.cat(diversities,dim=0)
-    return div.sum(dim=1).mean(dim=0).item()
-
-def loss(model, x, y):
-    model.eval()
-    
-    x_tensor = torch.tensor(x)
-    y_tensor = torch.tensor(y)
-    dataset = TransformTensorDataset(x_tensor, y_tensor, transform=None)
-    test_loader = torch.utils.data.DataLoader(dataset, batch_size = model.batch_size)
-    
-    losses = []
-    for batch in test_loader:
-        data, target = batch[0], batch[1]
-        data, target = data.cuda(), target.cuda()
-        data, target = Variable(data), Variable(target)
-
-        with torch.no_grad():
-            pred = model(data)
-        
-        losses.append(model.loss_function(pred, target).mean().item())
-    
-    return np.mean(losses)
-
-def avg_loss(model, x, y):
-    if not hasattr(model, "estimators_"):
-        return 0
-    model.eval()
-    
-    x_tensor = torch.tensor(x)
-    y_tensor = torch.tensor(y)
-    dataset = TransformTensorDataset(x_tensor, y_tensor, transform=None)
-    test_loader = torch.utils.data.DataLoader(dataset, batch_size = model.batch_size)
-    
-    losses = []
-    for batch in test_loader:
-        data, target = batch[0], batch[1]
-        data, target = data.cuda(), target.cuda()
-        data, target = Variable(data), Variable(target)
-
-        with torch.no_grad():
-            f_bar, base_preds = model.forward_with_base(data)
-        
-        ilosses = []
-        for base in base_preds:
-            ilosses.append(model.loss_function(base, target).mean().item())
-            
-        losses.append(np.mean(ilosses))
-
-    return np.mean(losses)
-
-def avg_accurcay(model, x, y):
-    if not hasattr(model, "estimators_"):
-        return 0
-    model.eval()
-    
-    x_tensor = torch.tensor(x)
-    y_tensor = torch.tensor(y)
-    dataset = TransformTensorDataset(x_tensor, y_tensor, transform=None)
-    test_loader = torch.utils.data.DataLoader(dataset, batch_size = model.batch_size)
-    
-    accuracies = []
-    for batch in test_loader:
-        data, target = batch[0], batch[1]
-        data, target = data.cuda(), target.cuda()
-        data, target = Variable(data), Variable(target)
-
-        with torch.no_grad():
-            _, base_preds = model.forward_with_base(data)
-        
-        iaccuracies = []
-        for base in base_preds:
-            iaccuracies.append( 100.0*(base.argmax(1) == target).type(torch.cuda.FloatTensor) )
-            
-        accuracies.append(torch.cat(iaccuracies,dim=0).mean().item())
-
-    return np.mean(accuracies)
 
 scheduler = {
     "method" : torch.optim.lr_scheduler.StepLR,
@@ -325,21 +115,19 @@ scheduler = {
 
 optimizer = {
     "method" : torch.optim.Adam,
-    #"method" : torch.optim.SGD,
-    # "method" : torch.optim.RMSprop,
     "lr" : 1e-3,
-    "epochs" : 80,
-    "batch_size" : 256,
+    "epochs" : 100,
+    "batch_size" : 128,
     "amsgrad":True
 }
 
 basecfg = { 
     "no_runs":1,
-    "train":("/home/buschjae/projects/bnn/FASHION", False),
-    "test":("/home/buschjae/projects/bnn/FASHION", True),
+    "train":("/data/s1/buschjae/", False),
+    "test":("/data/s1/buschjae/", True),
     "data_loader":read_data,
     "scoring": {
-        # TODO Maybe add "scoring" to model and score it on each eval?
+        # TODO Maybe add "scoring" to SKLearnModel and score it on each eval?
         'accuracy': make_scorer(accuracy_score, greater_is_better=True),
         'params': pytorch_total_params,
         'diversity': diversity,
@@ -364,77 +152,133 @@ basecfg = {
 cuda_devices = [0]
 models = []
 
-models.append(
-    {
-        "model":SKLearnModel,
-        # "n_estimators":16,
-        #"base_estimator": partial(vgg_model, model_type="float", n_layers=2, n_channels=32, width=None),
-        "base_estimator": partial(mobilenet_model, model_type="binary"),
-        "optimizer":optimizer,
-        "scheduler":scheduler,
-        "eval_test":5,
-        "loss_function":nn.CrossEntropyLoss(reduction="none"),
-    }
-)
+for s in [1, 2]:
+    for t in ["float", "binary"]:
+        models.append(
+            {
+                "model":SKLearnModel,
+                #"base_estimator": lambda: MobileNetV3(mode='small', classes_num=10, input_size=32, width_multiplier=1.0, dropout=0.0, BN_momentum=0.1, zero_gamma=False, in_channels=1),
+                "base_estimator": partial(vgg_model, hidden_size = s*128, model_type = t, depth = 4, n_channels = s*32),
+                "optimizer":optimizer,
+                "scheduler":scheduler,
+                "eval_test":1,
+                "loss_function":nn.CrossEntropyLoss(reduction="none"),
+                "transformer":
+                    transforms.Compose([
+                        transforms.ToPILImage(),
+                        transforms.RandomCrop(28, padding=4),
+                        transforms.RandomHorizontalFlip(),
+                        transforms.ToTensor()
+                    ])
+            }
+        )
 
-models.append(
-    {
-        "model":BaggingClassifier,
-        "n_estimators":8,
-        "train_method":"fast",
-        #"base_estimator": partial(vgg_model, model_type="float", n_layers=2, n_channels=32, width=None),
-        "base_estimator": partial(mobilenet_model, model_type="binary"),
-        "optimizer":optimizer,
-        "scheduler":scheduler,
-        "eval_test":5,
-        "loss_function":nn.CrossEntropyLoss(reduction="none"),
-    }
-)
+        for m in [8]:
+            models.append(
+                {
+                    "model":BaggingClassifier,
+                    "n_estimators":m,
+                    "train_method":"fast",
+                    "base_estimator": partial(vgg_model, hidden_size = s*128, model_type = t, depth = 4, n_channels = s*32),
+                    "optimizer":optimizer,
+                    "scheduler":scheduler,
+                    "eval_test":5,
+                    "loss_function":nn.CrossEntropyLoss(reduction="none"),
+                    "transformer":
+                        transforms.Compose([
+                            transforms.ToPILImage(),
+                            transforms.RandomCrop(28, padding=4),
+                            transforms.RandomHorizontalFlip(),
+                            transforms.ToTensor()
+                        ])
+                }
+            )
 
-models.append(
-    {
-        "model":E2EEnsembleClassifier,
-        "n_estimators":8,
-        # "l_reg":l_reg,
-        # "combination_type":"softmax",
-        #"base_estimator": partial(vgg_model, model_type="float", n_layers=2, n_channels=32, width=None),
-        "base_estimator": partial(mobilenet_model, model_type="binary"),
-        "optimizer":optimizer,
-        "scheduler":scheduler,
-        "eval_test":5,
-        "loss_function":nn.CrossEntropyLoss(reduction="none"),
-    }
-)
+            models.append(
+                {
+                    "model":E2EEnsembleClassifier,
+                    "n_estimators":m,
+                    "base_estimator": partial(vgg_model, hidden_size = s*128, model_type = t, depth = 4, n_channels = s*32),
+                    "optimizer":optimizer,
+                    "scheduler":scheduler,
+                    "eval_test":5,
+                    "loss_function":nn.CrossEntropyLoss(reduction="none"),
+                    "transformer":
+                        transforms.Compose([
+                            transforms.ToPILImage(),
+                            transforms.RandomCrop(28, padding=4),
+                            transforms.RandomHorizontalFlip(),
+                            transforms.ToTensor()
+                        ])
+                }
+            )
 
-models.append(
-    {
-        "model":SMCLClassifier,
-        "n_estimators":8,
-        # "l_reg":l_reg,
-         "combination_type":"softmax",
-        #"base_estimator": partial(vgg_model, model_type="float", n_layers=2, n_channels=32, width=None),
-        "base_estimator": partial(mobilenet_model, model_type="binary"),
-        "optimizer":optimizer,
-        "scheduler":scheduler,
-        "eval_test":5,
-        "loss_function":nn.CrossEntropyLoss(reduction="none"),
-    }
-)
+            models.append(
+                {
+                    "model":SMCLClassifier,
+                    "n_estimators":m,
+                    "combination_type":"best",
+                    "base_estimator": partial(vgg_model, hidden_size = s*128, model_type = t, depth = 4, n_channels = s*32),
+                    "optimizer":optimizer,
+                    "scheduler":scheduler,
+                    "eval_test":5,
+                    "loss_function":nn.CrossEntropyLoss(reduction="none"),
+                    "transformer":
+                        transforms.Compose([
+                            transforms.ToPILImage(),
+                            transforms.RandomCrop(28, padding=4),
+                            transforms.RandomHorizontalFlip(),
+                            transforms.ToTensor()
+                        ])
+                }
+            )
 
-for l_reg in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]: 
-    models.append(
-        {
-            "model":GNCLClassifier,
-            "n_estimators":8,
-            "l_reg":l_reg,
-            "combination_type":"average",
-            #"base_estimator": partial(vgg_model, model_type="float", n_layers=2, n_channels=32, width=None),
-            "base_estimator": partial(mobilenet_model, model_type="binary"),
-            "optimizer":optimizer,
-            "scheduler":scheduler,
-            "eval_test":5,
-            "loss_function":nn.CrossEntropyLoss(reduction="none"),
-        }
-    )
+            for l_reg in [0, 0.1, 0.2, 0.3, 0.4, 0.5]: 
+                models.append(
+                    {
+                        "model":GNCLClassifier,
+                        "n_estimators":m,
+                        "mode":"exact",
+                        "l_reg":l_reg,
+                        "combination_type":"average",
+                        "base_estimator": partial(vgg_model, hidden_size = s*128, model_type = t, depth = 4, n_channels = s*32),
+                        "optimizer":optimizer,
+                        "scheduler":scheduler,
+                        "eval_test":5,
+                        "loss_function":nn.CrossEntropyLoss(reduction="none"),
+                        "transformer":
+                            transforms.Compose([
+                                transforms.ToPILImage(),
+                                transforms.RandomCrop(28, padding=4),
+                                transforms.RandomHorizontalFlip(),
+                                transforms.ToTensor()
+                            ])
+                    }
+                )
+
+                models.append(
+                    {
+                        "model":GNCLClassifier,
+                        "n_estimators":m,
+                        "mode":"upper",
+                        "l_reg":l_reg,
+                        "combination_type":"average",
+                        "base_estimator": partial(vgg_model, hidden_size = s*128, model_type = t, depth = 4, n_channels = s*32),
+                        "optimizer":optimizer,
+                        "scheduler":scheduler,
+                        "eval_test":5,
+                        "loss_function":nn.CrossEntropyLoss(reduction="none"),
+                        "transformer":
+                            transforms.Compose([
+                                transforms.ToPILImage(),
+                                transforms.RandomCrop(28, padding=4),
+                                transforms.RandomHorizontalFlip(),
+                                transforms.ToTensor()
+                            ])
+                    }
+                )
+
+# base = models[0]["base_estimator"]().cuda()
+# print(summary(base, (1, 28, 28)))
 
 run_experiments(basecfg, models, cuda_devices = cuda_devices, n_cores=len(cuda_devices))

@@ -9,6 +9,8 @@ dependencies:
   - pandas
   - pip
   - setuptools
+  - plotly # Technically not a dependency, but still nice to have for browsing results
+  - plotly-conda # Technically not a dependency, but still nice to use for exporting results, may require xvfb depending on the setup
   - jupyter # Technically not a dependency, but still nice to have for browsing results
   # - cudatoolkit=10.1  # Make sure this matches the currently installed cuda version, e.g. via nvidia-smi
   # - pytorch=1.6 # For some reason just installing "pytorch" defaults to 1.4 instead of 1.6, so we pin it here.
@@ -19,6 +21,7 @@ dependencies:
     - tqdm
     - ray
     - scikit-image
+    - torchsummary # Technically not a dependency, but helps for developing models and check their size / # parameters
     # For some reason it seems more stable to install torch via pip into this conda environment
     # If we use the above code, we sometimes (?!) end up with cuda 10.2 instead of 10.1?!
     # - torch==1.6.0+cu101 torchvision==0.7.0+cu101 -f https://download.pytorch.org/whl/torch_stable.html

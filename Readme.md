@@ -37,3 +37,7 @@ If you want to, you can also try to install it via conda. Then, just un-comment 
     pip install --user -e ./submodules/deep_ensembles_v2/
 
 Note, that the second call will invoke `nvcc` to compile the cuda kernel. PyTorch internally respects `CUDA_HOME` which must point to your cuda installation. On ubuntu you can also install `nvidia-cuda-toolkit` via `sudo apt-get install nvidia-cuda-toolkit` which was enough for me to make this work. If you have installed cuda manually, just set `CUDA_HOME` to the correct path and it should work.
+
+
+## Random stuff
+Currently base_learners of all learners are expected to be functions returning a new object of the base_learner and _not_ the baselearner itself. However, this is not true for the binarized wrapper
