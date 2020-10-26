@@ -18,6 +18,9 @@ import torchvision
 import torchvision.transforms as transforms
 from torchsummary import summary
 
+# Lets try the newest shit https://github.com/juntang-zhuang/Adabelief-Optimizer
+from adabelief_pytorch import AdaBelief
+
 from sklearn.metrics import make_scorer, accuracy_score
 
 from deep_ensembles_v2.Utils import Flatten, Clamp, Scale
@@ -40,6 +43,7 @@ from deep_ensembles_v2.Metrics import avg_accurcay,diversity,avg_loss,loss
 from deep_ensembles_v2.models.VGG import VGGNet
 from deep_ensembles_v2.models.SimpleResNet import SimpleResNet
 from deep_ensembles_v2.models.MobileNetV3 import MobileNetV3
+from deep_ensembles_v2.models.DenseNet import DenseNet3
 from deep_ensembles_v2.models.BinarisedNeuralNetworks import BinaryModel
 
 # from MobilenetV3 import mobilenetv3
@@ -196,33 +200,67 @@ models = []
 #     }
 # )
 
-for s in ["small"]:
+for s in ["small", "large"]:
     for t in ["float", "binary"]:
+        # scheduler = {
+        #     "method" : torch.optim.lr_scheduler.CosineAnnealingLR,
+        #     "T_max" : 20
+        # }
         scheduler = {
-            "method" : torch.optim.lr_scheduler.CosineAnnealingLR,
-            "T_max" : 20
+            "method" : torch.optim.lr_scheduler.StepLR,
+            "step_size" : 25,
+            "gamma": 0.5
         }
 
         optimizer = {
-            "method" : torch.optim.Adam if "binary" in t else torch.optim.SGD,
-            "lr" : 1e-3 if "binary" in t else 0.3,
-            "epochs" : 200,
+            "method" : AdaBelief, # torch.optim.Adam, #if "binary" in t else torch.optim.SGD,
+            "lr" : 1e-3, #1e-3, #if "binary" in t else 0.1,
+            # "momentum" : 0.9,
+            # "nesterov" : True,
+            # "weight_decay" : 1e-4, 
+            "epochs" : 100,
             "batch_size" : 128,
+            "eps" : 1e-12,
+            "betas" : (0.9,0.999)
         }
 
-        def mobilenetv3(size, model_type):
-            if "binary" == model_type:
-                return BinaryModel(MobileNetV3(mode=size, classes_num=100, input_size=32, width_multiplier=1.0, dropout=0.2, BN_momentum=0.1, zero_gamma=False, in_channels = 3), keep_activation=True)
-            else:
-                return MobileNetV3(mode=size, classes_num=100, input_size=32, width_multiplier=1.0, dropout=0.2, BN_momentum=0.1, zero_gamma=False, in_channels = 3)
+        # def mobilenetv3(size, model_type):
+        #     if "binary" == model_type:
+        #         return BinaryModel(MobileNetV3(mode=size, classes_num=100, input_size=32, width_multiplier=1.0, dropout=0.2, BN_momentum=0.1, zero_gamma=False, in_channels = 3), keep_activation=True)
+        #     else:
+        #         return MobileNetV3(mode=size, classes_num=100, input_size=32, width_multiplier=1.0, dropout=0.2, BN_momentum=0.1, zero_gamma=False, in_channels = 3)
 
+        def densenetv3(size, model_type):
+            if "small" == size:
+                depth = 25
+            else:
+                depth = 50
+
+            if "binary" == model_type:
+                return BinaryModel(DenseNet3(depth = depth, num_classes=100), keep_activation=True)
+            else:
+                return DenseNet3(depth = depth, num_classes=100)
+
+        def simpleresnet(size, model_type):
+            if "small" == size:
+                n_channels = 32
+                depth = 4
+            else:
+                n_channels = 96
+                depth = 4
+
+            if "binary" == model_type:
+                return BinaryModel(SimpleResNet(n_channels = n_channels, depth = depth, num_classes=100), keep_activation=True)
+            else:
+                return SimpleResNet(n_channels = n_channels, depth = depth, num_classes=100)
+        
         models.append(
             {
                 "model":SKLearnModel,
-                "base_estimator": partial(mobilenetv3, size=s, model_type=t),
+                "base_estimator": partial(simpleresnet, size=s, model_type=t),
                 "optimizer":optimizer,
                 "scheduler":scheduler,
-                "eval_test":5,
+                "eval_test":1,
                 "loss_function":nn.CrossEntropyLoss(reduction="none"),
                 "transformer":
                     transforms.Compose([
@@ -247,7 +285,7 @@ for s in ["small"]:
                     "model":BaggingClassifier,
                     "n_estimators":m,
                     "train_method":"fast",
-                    "base_estimator": partial(mobilenetv3, size=s, model_type=t),
+                    "base_estimator": partial(simpleresnet, size=s, model_type=t),
                     "optimizer":optimizer,
                     "scheduler":scheduler,
                     "eval_test":5,
@@ -273,7 +311,7 @@ for s in ["small"]:
                 {
                     "model":E2EEnsembleClassifier,
                     "n_estimators":m,
-                    "base_estimator": partial(mobilenetv3, size=s, model_type=t),
+                    "base_estimator": partial(simpleresnet, size=s, model_type=t),
                     "optimizer":optimizer,
                     "scheduler":scheduler,
                     "eval_test":5,
@@ -300,7 +338,7 @@ for s in ["small"]:
                     "model":SMCLClassifier,
                     "n_estimators":m,
                     "combination_type":"best",
-                    "base_estimator": partial(mobilenetv3, size=s, model_type=t),
+                    "base_estimator": partial(simpleresnet, size=s, model_type=t),
                     "optimizer":optimizer,
                     "scheduler":scheduler,
                     "eval_test":5,
@@ -322,15 +360,15 @@ for s in ["small"]:
                 }
             )
 
-            for l_reg in [0, 0.1, 0.2, 0.3, 0.4, 0.5]: 
+            for l_reg in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]: 
                 models.append(
                     {
                         "model":GNCLClassifier,
                         "n_estimators":m,
-                        "mode":"exact",
+                        "mode":"upper",
                         "l_reg":l_reg,
                         "combination_type":"average",
-                        "base_estimator": partial(mobilenetv3, size=s, model_type=t),
+                        "base_estimator": partial(simpleresnet, size=s, model_type=t),
                         "optimizer":optimizer,
                         "scheduler":scheduler,
                         "eval_test":5,
