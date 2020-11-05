@@ -32,6 +32,9 @@ from deep_ensembles_v2.GNCLClassifier import GNCLClassifier
 from deep_ensembles_v2.StackingClassifier import StackingClassifier
 from deep_ensembles_v2.DeepDecisionTreeClassifier import DeepDecisionTreeClassifier
 from deep_ensembles_v2.SMCLClassifier import SMCLClassifier
+from deep_ensembles_v2.GradientBoostedNets import GradientBoostedNets
+from deep_ensembles_v2.SnapshotEnsembleClassifier import SnapshotEnsembleClassifier
+
 from deep_ensembles_v2.models.BinarisedNeuralNetworks import BinaryConv2d, BinaryLinear, BinaryTanh
 from deep_ensembles_v2.Utils import pytorch_total_params, apply_in_batches, TransformTensorDataset
 
@@ -157,7 +160,7 @@ basecfg = {
     "store_model":False
 }
 
-DEBUG = False
+DEBUG = True
 
 if DEBUG:
     basecfg.update({
@@ -254,37 +257,92 @@ for s in ["small", "large"]:
             else:
                 return SimpleResNet(n_channels = n_channels, depth = depth, num_classes=100)
         
-        models.append(
-            {
-                "model":SKLearnModel,
-                "base_estimator": partial(simpleresnet, size=s, model_type=t),
-                "optimizer":optimizer,
-                "scheduler":scheduler,
-                "eval_test":1,
-                "loss_function":nn.CrossEntropyLoss(reduction="none"),
-                "transformer":
-                    transforms.Compose([
-                        # After loading we normlaize the input data, which is fine.
-                        # For training however, we want to transform it a bit and _then_ normalize it. Thus, we inverse the normalization first
-                        transforms.Normalize(
-                            mean= [-m/s for m, s in zip([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])],
-                            std= [1/s for s in [0.2023, 0.1994, 0.2010]]
-                        ),
-                        transforms.ToPILImage(),
-                        transforms.RandomCrop(32, padding=4),
-                        transforms.RandomHorizontalFlip(),
-                        transforms.ToTensor(),
-                        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-                    ])
-            }
-        )
+        # models.append(
+        #     {
+        #         "model":SKLearnModel,
+        #         "base_estimator": partial(simpleresnet, size=s, model_type=t),
+        #         "optimizer":optimizer,
+        #         "scheduler":scheduler,
+        #         "eval_test":1,
+        #         "loss_function":nn.CrossEntropyLoss(reduction="none"),
+        #         "transformer":
+        #             transforms.Compose([
+        #                 # After loading we normlaize the input data, which is fine.
+        #                 # For training however, we want to transform it a bit and _then_ normalize it. Thus, we inverse the normalization first
+        #                 transforms.Normalize(
+        #                     mean= [-m/s for m, s in zip([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])],
+        #                     std= [1/s for s in [0.2023, 0.1994, 0.2010]]
+        #                 ),
+        #                 transforms.ToPILImage(),
+        #                 transforms.RandomCrop(32, padding=4),
+        #                 transforms.RandomHorizontalFlip(),
+        #                 transforms.ToTensor(),
+        #                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+        #             ])
+        #     }
+        # )
 
         for m in [16]:
+            # models.append(
+            #     {
+            #         "model":BaggingClassifier,
+            #         "n_estimators":m,
+            #         "train_method":"fast",
+            #         "base_estimator": partial(simpleresnet, size=s, model_type=t),
+            #         "optimizer":optimizer,
+            #         "scheduler":scheduler,
+            #         "eval_test":5,
+            #         "loss_function":nn.CrossEntropyLoss(reduction="none"),
+            #         "transformer":
+            #             transforms.Compose([
+            #                 # After loading we normlaize the input data, which is fine.
+            #                 # For training however, we want to transform it a bit and _then_ normalize it. Thus, we inverse the normalization first
+            #                 transforms.Normalize(
+            #                     mean= [-m/s for m, s in zip([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])],
+            #                     std= [1/s for s in [0.2023, 0.1994, 0.2010]]
+            #                 ),
+            #                 transforms.ToPILImage(),
+            #                 transforms.RandomCrop(32, padding=4),
+            #                 transforms.RandomHorizontalFlip(),
+            #                 transforms.ToTensor(),
+            #                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            #             ])
+            #     }
+            # )
+
+            # models.append(
+            #     {
+            #         "model":GradientBoostedNets,
+            #         "n_estimators":m,
+            #         "base_estimator": partial(simpleresnet, size=s, model_type=t),
+            #         "optimizer":optimizer,
+            #         "scheduler":scheduler,
+            #         "eval_test":5,
+            #         "loss_function":nn.CrossEntropyLoss(reduction="none"),
+            #         "transformer":
+            #             transforms.Compose([
+            #                 # After loading we normlaize the input data, which is fine.
+            #                 # For training however, we want to transform it a bit and _then_ normalize it. Thus, we inverse the normalization first
+            #                 transforms.Normalize(
+            #                     mean= [-m/s for m, s in zip([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])],
+            #                     std= [1/s for s in [0.2023, 0.1994, 0.2010]]
+            #                 ),
+            #                 transforms.ToPILImage(),
+            #                 transforms.RandomCrop(32, padding=4),
+            #                 transforms.RandomHorizontalFlip(),
+            #                 transforms.ToTensor(),
+            #                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            #             ])
+            #     }
+            # )
+
             models.append(
                 {
-                    "model":BaggingClassifier,
+                    "model":SnapshotEnsembleClassifier,
+                    # "n_estimators":5,
+                    # "list_of_snapshots":[2,3,4,5],
                     "n_estimators":m,
-                    "train_method":"fast",
+                    "list_of_snapshots":[2,3,4,5,10,15,20,25,30,40,50,60,70,80,90],
                     "base_estimator": partial(simpleresnet, size=s, model_type=t),
                     "optimizer":optimizer,
                     "scheduler":scheduler,
@@ -306,89 +364,88 @@ for s in ["small", "large"]:
                         ])
                 }
             )
+            # models.append(
+            #     {
+            #         "model":E2EEnsembleClassifier,
+            #         "n_estimators":m,
+            #         "base_estimator": partial(simpleresnet, size=s, model_type=t),
+            #         "optimizer":optimizer,
+            #         "scheduler":scheduler,
+            #         "eval_test":5,
+            #         "loss_function":nn.CrossEntropyLoss(reduction="none"),
+            #         "transformer":
+            #             transforms.Compose([
+            #                 # After loading we normlaize the input data, which is fine.
+            #                 # For training however, we want to transform it a bit and _then_ normalize it. Thus, we inverse the normalization first
+            #                 transforms.Normalize(
+            #                     mean= [-m/s for m, s in zip([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])],
+            #                     std= [1/s for s in [0.2023, 0.1994, 0.2010]]
+            #                 ),
+            #                 transforms.ToPILImage(),
+            #                 transforms.RandomCrop(32, padding=4),
+            #                 transforms.RandomHorizontalFlip(),
+            #                 transforms.ToTensor(),
+            #                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            #             ])
+            #     }
+            # )
 
-            models.append(
-                {
-                    "model":E2EEnsembleClassifier,
-                    "n_estimators":m,
-                    "base_estimator": partial(simpleresnet, size=s, model_type=t),
-                    "optimizer":optimizer,
-                    "scheduler":scheduler,
-                    "eval_test":5,
-                    "loss_function":nn.CrossEntropyLoss(reduction="none"),
-                    "transformer":
-                        transforms.Compose([
-                            # After loading we normlaize the input data, which is fine.
-                            # For training however, we want to transform it a bit and _then_ normalize it. Thus, we inverse the normalization first
-                            transforms.Normalize(
-                                mean= [-m/s for m, s in zip([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])],
-                                std= [1/s for s in [0.2023, 0.1994, 0.2010]]
-                            ),
-                            transforms.ToPILImage(),
-                            transforms.RandomCrop(32, padding=4),
-                            transforms.RandomHorizontalFlip(),
-                            transforms.ToTensor(),
-                            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-                        ])
-                }
-            )
+            # models.append(
+            #     {
+            #         "model":SMCLClassifier,
+            #         "n_estimators":m,
+            #         "combination_type":"best",
+            #         "base_estimator": partial(simpleresnet, size=s, model_type=t),
+            #         "optimizer":optimizer,
+            #         "scheduler":scheduler,
+            #         "eval_test":5,
+            #         "loss_function":nn.CrossEntropyLoss(reduction="none"),
+            #         "transformer":
+            #             transforms.Compose([
+            #                 # After loading we normlaize the input data, which is fine.
+            #                 # For training however, we want to transform it a bit and _then_ normalize it. Thus, we inverse the normalization first
+            #                 transforms.Normalize(
+            #                     mean= [-m/s for m, s in zip([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])],
+            #                     std= [1/s for s in [0.2023, 0.1994, 0.2010]]
+            #                 ),
+            #                 transforms.ToPILImage(),
+            #                 transforms.RandomCrop(32, padding=4),
+            #                 transforms.RandomHorizontalFlip(),
+            #                 transforms.ToTensor(),
+            #                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            #             ])
+            #     }
+            # )
 
-            models.append(
-                {
-                    "model":SMCLClassifier,
-                    "n_estimators":m,
-                    "combination_type":"best",
-                    "base_estimator": partial(simpleresnet, size=s, model_type=t),
-                    "optimizer":optimizer,
-                    "scheduler":scheduler,
-                    "eval_test":5,
-                    "loss_function":nn.CrossEntropyLoss(reduction="none"),
-                    "transformer":
-                        transforms.Compose([
-                            # After loading we normlaize the input data, which is fine.
-                            # For training however, we want to transform it a bit and _then_ normalize it. Thus, we inverse the normalization first
-                            transforms.Normalize(
-                                mean= [-m/s for m, s in zip([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])],
-                                std= [1/s for s in [0.2023, 0.1994, 0.2010]]
-                            ),
-                            transforms.ToPILImage(),
-                            transforms.RandomCrop(32, padding=4),
-                            transforms.RandomHorizontalFlip(),
-                            transforms.ToTensor(),
-                            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-                        ])
-                }
-            )
-
-            for l_reg in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]: 
-                models.append(
-                    {
-                        "model":GNCLClassifier,
-                        "n_estimators":m,
-                        "mode":"upper",
-                        "l_reg":l_reg,
-                        "combination_type":"average",
-                        "base_estimator": partial(simpleresnet, size=s, model_type=t),
-                        "optimizer":optimizer,
-                        "scheduler":scheduler,
-                        "eval_test":5,
-                        "loss_function":nn.CrossEntropyLoss(reduction="none"),
-                        "transformer":
-                            transforms.Compose([
-                                # After loading we normlaize the input data, which is fine.
-                                # For training however, we want to transform it a bit and _then_ normalize it. Thus, we inverse the normalization first
-                                transforms.Normalize(
-                                    mean= [-m/s for m, s in zip([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])],
-                                    std= [1/s for s in [0.2023, 0.1994, 0.2010]]
-                                ),
-                                transforms.ToPILImage(),
-                                transforms.RandomCrop(32, padding=4),
-                                transforms.RandomHorizontalFlip(),
-                                transforms.ToTensor(),
-                                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-                            ])
-                    }
-                )
+            # for l_reg in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]: 
+            #     models.append(
+            #         {
+            #             "model":GNCLClassifier,
+            #             "n_estimators":m,
+            #             "mode":"upper",
+            #             "l_reg":l_reg,
+            #             "combination_type":"average",
+            #             "base_estimator": partial(simpleresnet, size=s, model_type=t),
+            #             "optimizer":optimizer,
+            #             "scheduler":scheduler,
+            #             "eval_test":5,
+            #             "loss_function":nn.CrossEntropyLoss(reduction="none"),
+            #             "transformer":
+            #                 transforms.Compose([
+            #                     # After loading we normlaize the input data, which is fine.
+            #                     # For training however, we want to transform it a bit and _then_ normalize it. Thus, we inverse the normalization first
+            #                     transforms.Normalize(
+            #                         mean= [-m/s for m, s in zip([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])],
+            #                         std= [1/s for s in [0.2023, 0.1994, 0.2010]]
+            #                     ),
+            #                     transforms.ToPILImage(),
+            #                     transforms.RandomCrop(32, padding=4),
+            #                     transforms.RandomHorizontalFlip(),
+            #                     transforms.ToTensor(),
+            #                     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            #                 ])
+            #         }
+            #     )
 
 try:
     base = models[0]["base_estimator"]().cuda()

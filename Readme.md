@@ -1,4 +1,4 @@
-# Binarized Neural Network Ensembles 
+# Generalized Negative Correlation Learning for Deep Ensembling
 This repoistory contains code do train Deep Learning Ensembles on CIFAR10/100, FACT, FashionMNIST and SVHN. It's a - more or less - random collection of code for various experiments. 
 
 In general there is code for training
