@@ -30,5 +30,5 @@ dependencies:
     - cloudpickle
     - adabelief-pytorch==0.1.0
     #- -e file:./submodules/experiment_runner/
-    #- -e file:./submodules/deep_ensembles_v2/
+    #- -e file:./submodules/Pysembles/
     
