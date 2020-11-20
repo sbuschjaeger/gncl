@@ -18,7 +18,7 @@ from sklearn.metrics import make_scorer, accuracy_score
 
 from deep_ensembles_v2.Utils import Flatten, cov, Clamp, Scale
 
-from deep_ensembles_v2.Models import SKLearnModel
+from deep_ensembles_v2.Models import Model
 from deep_ensembles_v2.E2EEnsembleClassifier import E2EEnsembleClassifier
 from deep_ensembles_v2.BaggingClassifier import BaggingClassifier
 from deep_ensembles_v2.GNCLClassifier import GNCLClassifier
@@ -182,7 +182,7 @@ models = []
 
 models.append(
     {
-        "model":SKLearnModel,
+        "model":Model,
         #"model":SGDEnsembleClassifier,
         #"n_estimators":5,
         "base_estimator": partial(mobilenet_model, model_type="float"),

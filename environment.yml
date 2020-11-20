@@ -1,4 +1,4 @@
-name: gncl
+name: gncl-ws
 channels:
   - pytorch
   # - conda-forge
@@ -10,7 +10,7 @@ dependencies:
   - pip
   - setuptools
   - plotly # Technically not a dependency, but still nice to have for browsing results
-  - plotly-orca
+  # - plotly-orca
   - jupyter # Technically not a dependency, but still nice to have for browsing results
   # - cudatoolkit=10.1  # Make sure this matches the currently installed cuda version, e.g. via nvidia-smi
   # - pytorch=1.6 # For some reason just installing "pytorch" defaults to 1.4 instead of 1.6, so we pin it here.
@@ -27,8 +27,8 @@ dependencies:
     - torch==1.6.0+cu101 torchvision==0.7.0+cu101 -f https://download.pytorch.org/whl/torch_stable.html
     - scikit-learn
     - scipy
-    - cloudpickle
+    # - cloudpickle
     - adabelief-pytorch==0.1.0
-    #- -e file:./submodules/experiment_runner/
-    #- -e file:./submodules/Pysembles/
+    - -e file:./submodules/experiment_runner/
+    - -e file:./submodules/Pysembles/
     

@@ -25,7 +25,7 @@ from sklearn.metrics import make_scorer, accuracy_score
 
 from deep_ensembles_v2.Utils import Flatten, Clamp, Scale
 
-from deep_ensembles_v2.Models import SKLearnModel
+from deep_ensembles_v2.Models import Model
 from deep_ensembles_v2.E2EEnsembleClassifier import E2EEnsembleClassifier
 from deep_ensembles_v2.BaggingClassifier import BaggingClassifier
 from deep_ensembles_v2.GNCLClassifier import GNCLClassifier
@@ -148,7 +148,7 @@ basecfg = {
     "test":("/data/s1/buschjae/CIFAR100/", True),
     "data_loader":read_data,
     "scoring": {
-        # TODO Maybe add "scoring" to SKLearnModel and score it on each eval?
+        # TODO Maybe add "scoring" to Model and score it on each eval?
         'accuracy': make_scorer(accuracy_score, greater_is_better=True),
         'params': pytorch_total_params,
         'diversity': diversity,
@@ -259,7 +259,7 @@ for s in ["small", "large"]:
         
         # models.append(
         #     {
-        #         "model":SKLearnModel,
+        #         "model":Model,
         #         "base_estimator": partial(simpleresnet, size=s, model_type=t),
         #         "optimizer":optimizer,
         #         "scheduler":scheduler,

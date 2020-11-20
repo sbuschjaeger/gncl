@@ -19,7 +19,7 @@ from sklearn.metrics import make_scorer, accuracy_score
 
 sys.path.append('../submodules/deep-ensembles-v2/')
 from Utils import Flatten, weighted_cross_entropy, weighted_mse_loss, weighted_squared_hinge_loss, cov, weighted_cross_entropy_with_softmax, weighted_lukas_loss, Clamp, Scale
-from Models import SKLearnModel
+from Models import Model
 from BinarisedNeuralNetworks import BinaryConv2d, BinaryLinear, BinaryTanh
 
 sys.path.append('../submodules/experiment_runner/')
@@ -183,7 +183,7 @@ models = []
 
 models.append(
     {
-        "model":SKLearnModel,
+        "model":Model,
         "base_estimator": partial(bnn_model, model_type="binary"),
         "optimizer":optimizer,
         "scheduler":scheduler,
