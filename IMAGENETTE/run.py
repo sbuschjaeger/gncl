@@ -8,6 +8,7 @@ from datetime import datetime
 from functools import partial
 import argparse
 import glob
+import PIL
 
 import numpy as np
 import pandas as pd
@@ -51,16 +52,41 @@ from pysembles.models.SimpleResNet import SimpleResNet
 from pysembles.models.MobileNetV3 import MobileNetV3
 from pysembles.models.BinarisedNeuralNetworks import BinaryModel
 
+'''
+Mean std have been computed this way 
+dataset = torchvision.datasets.ImageFolder("/data/s1/buschjae/IMAGENETTE/imagenette2-160", transform = test_transformation()) #, transform = train_transformation()
+loader = torch.utils.data.DataLoader(dataset,batch_size=10,num_workers=0,shuffle=False)
+
+mean = 0.
+std = 0.
+for images, _ in loader:
+    batch_samples = images.size(0) # batch size (the last batch can have smaller size!)
+    images = images.view(batch_samples, images.size(1), -1)
+    mean += images.mean(2).sum(0)
+    std += images.std(2).sum(0)
+
+mean /= len(loader.dataset)
+std /= len(loader.dataset)
+
+print("MEAN: ", mean)
+print("STD: ", std)
+'''
+
 def train_transformation():
     return transforms.Compose([
-        transforms.RandomCrop(28, padding=4),
+        transforms.RandomCrop(160, padding=4),
         transforms.RandomHorizontalFlip(),
+        transforms.Resize(128, PIL.Image.BICUBIC),
         transforms.ToTensor(),
+        transforms.Normalize(mean=[0.4660, 0.4580, 0.4296], std=[0.2376, 0.2316, 0.2393])
     ])
 
 def test_transformation():
     return transforms.Compose([
+        transforms.CenterCrop(160),
+        transforms.Resize(128, PIL.Image.BICUBIC),
         transforms.ToTensor(),
+        transforms.Normalize(mean=[0.4660, 0.4580, 0.4296], std=[0.2376, 0.2316, 0.2393])
     ])
 
 def pre(cfg):
@@ -158,18 +184,18 @@ scheduler = {
 optimizer = {
     #"method" : AdaBelief, # torch.optim.Adam, #if "binary" in t else torch.optim.SGD,
     "method" : AdaBelief,
-    "lr" : 1e-3, #1e-3, #if "binary" in t else 0.1,
+    "lr" : 1e-2, #1e-3, #if "binary" in t else 0.1,
     # "momentum" : 0.9,
     # "nesterov" : True,
     # "weight_decay" : 1e-4, 
-    "epochs" : 100,
+    "epochs" : 150,
     "eps" : 1e-12,
     "betas" : (0.9,0.999)
 }
 
 loader = {
     "num_workers": 1, 
-    "batch_size" : 128,
+    "batch_size" : 256,
     "pin_memory": True
 }
 
@@ -182,9 +208,15 @@ def simpleresnet(size, model_type):
         depth = 4
 
     if "binary" == model_type:
-        return BinaryModel(SimpleResNet(in_channels = 1, n_channels = n_channels, depth = depth, num_classes=10), keep_activation=True)
+        return BinaryModel(SimpleResNet(in_channels = 3, n_channels = n_channels, depth = depth, num_classes=10, lin_size = 36*n_channels), keep_activation=True)
     else:
-        return SimpleResNet(in_channels = 1, n_channels = n_channels, depth = depth, num_classes=10)
+        return SimpleResNet(in_channels = 3, n_channels = n_channels, depth = depth, num_classes=10, lin_size = 36*n_channels)
+
+def mobilenetv3(size, model_type):
+    if "binary" == model_type:
+        return BinaryModel(MobileNetV3(classes_num = 10, mode=size, width_multiplier=1.0, dropout=0.0, BN_momentum=0.1, zero_gamma=False, in_channels = 3), keep_activation=True)
+    else:
+        return MobileNetV3(classes_num = 10, mode=size, width_multiplier=1.0, dropout=0.0, BN_momentum=0.1, zero_gamma=False, in_channels = 3)
 
 def stacking_classifier(model_type):
     classifier = torch.nn.Linear(16*10,10)
@@ -194,12 +226,12 @@ def stacking_classifier(model_type):
     else:
         return classifier
 
-for s in ["small","large"]: 
-    for t in ["binary","float"]: 
+for s in ["tiny", "small"]: #"large"
+    for t in ["float", "binary"]: 
         models.append(
             {
                 "model":Model,
-                "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                "base_estimator": partial(mobilenetv3, size=s, model_type=t),
                 "optimizer":optimizer,
                 "scheduler":scheduler,
                 "loader":loader,
@@ -208,8 +240,8 @@ for s in ["small","large"]:
                 "loss_function":nn.CrossEntropyLoss(reduction="none"),
                 "use_amp":True,
                 "device":"cuda",
-                "train_data": torchvision.datasets.FashionMNIST(".", train=True, transform = train_transformation(), download = True),
-                "test_data": torchvision.datasets.FashionMNIST(".", train=False, transform = test_transformation(), download = True),
+                "train_data": torchvision.datasets.ImageFolder("/data/s1/buschjae/IMAGENETTE/imagenette2-160/train", transform = train_transformation()),
+                "test_data": torchvision.datasets.ImageFolder("/data/s1/buschjae/IMAGENETTE/imagenette2-160/val", transform = test_transformation()),
                 "verbose":True
             }
         )
@@ -218,7 +250,7 @@ for s in ["small","large"]:
             models.append(
                 {
                     "model":StackingClassifier,
-                    "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                    "base_estimator": partial(mobilenetv3, size=s, model_type=t),
                     "classifier" : partial(stacking_classifier, model_type=t),
                     "n_estimators":m,
                     "optimizer":optimizer,
@@ -229,8 +261,8 @@ for s in ["small","large"]:
                     "loss_function":nn.CrossEntropyLoss(reduction="none"),
                     "use_amp":True,
                     "device":"cuda",
-                    "train_data": torchvision.datasets.FashionMNIST(".", train=True, transform = train_transformation()),
-                    "test_data": torchvision.datasets.FashionMNIST(".", train=False, transform = test_transformation()),
+                    "train_data": torchvision.datasets.ImageFolder("/data/s1/buschjae/IMAGENETTE/imagenette2-160/train", transform = train_transformation()),
+                    "test_data": torchvision.datasets.ImageFolder("/data/s1/buschjae/IMAGENETTE/imagenette2-160/val", transform = test_transformation()),
                     "verbose":True
                 }
             )
@@ -240,7 +272,7 @@ for s in ["small","large"]:
                     "model":BaggingClassifier,
                     "n_estimators":m,
                     "train_method":"fast",
-                    "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                    "base_estimator": partial(mobilenetv3, size=s, model_type=t),
                     "optimizer":optimizer,
                     "scheduler":scheduler,
                     "loader":loader,
@@ -249,8 +281,8 @@ for s in ["small","large"]:
                     "loss_function":nn.CrossEntropyLoss(reduction="none"),
                     "use_amp":True,
                     "device":"cuda",
-                    "train_data": torchvision.datasets.FashionMNIST(".", train=True, transform = train_transformation()),
-                    "test_data": torchvision.datasets.FashionMNIST(".", train=False, transform = test_transformation()),
+                    "train_data": torchvision.datasets.ImageFolder("/data/s1/buschjae/IMAGENETTE/imagenette2-160/train", transform = train_transformation()),
+                    "test_data": torchvision.datasets.ImageFolder("/data/s1/buschjae/IMAGENETTE/imagenette2-160/val", transform = test_transformation()),
                     "verbose":True
                 }
             )
@@ -259,7 +291,7 @@ for s in ["small","large"]:
                 {
                     "model":GradientBoostedNets,
                     "n_estimators":m,
-                    "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                    "base_estimator": partial(mobilenetv3, size=s, model_type=t),
                     "optimizer":optimizer,
                     "scheduler":scheduler,
                     "loader":loader,
@@ -268,8 +300,8 @@ for s in ["small","large"]:
                     "loss_function":nn.CrossEntropyLoss(reduction="none"),
                     "use_amp":True,
                     "device":"cuda",
-                    "train_data": torchvision.datasets.FashionMNIST(".", train=True, transform = train_transformation()),
-                    "test_data": torchvision.datasets.FashionMNIST(".", train=False, transform = test_transformation()),
+                    "train_data": torchvision.datasets.ImageFolder("/data/s1/buschjae/IMAGENETTE/imagenette2-160/train", transform = train_transformation()),
+                    "test_data": torchvision.datasets.ImageFolder("/data/s1/buschjae/IMAGENETTE/imagenette2-160/val", transform = test_transformation()),
                     "verbose":True
                 }
             )
@@ -279,7 +311,7 @@ for s in ["small","large"]:
                     "model":SnapshotEnsembleClassifier,
                     "n_estimators":m,
                     "list_of_snapshots":[2,3,4,5,10,15,20,25,30,40,50,60,70,80,90],
-                    "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                    "base_estimator": partial(mobilenetv3, size=s, model_type=t),
                     "optimizer":optimizer,
                     "scheduler":scheduler,
                     "loader":loader,
@@ -288,8 +320,8 @@ for s in ["small","large"]:
                     "loss_function":nn.CrossEntropyLoss(reduction="none"),
                     "use_amp":True,
                     "device":"cuda",
-                    "train_data": torchvision.datasets.FashionMNIST(".", train=True, transform = train_transformation()),
-                    "test_data": torchvision.datasets.FashionMNIST(".", train=False, transform = test_transformation()),
+                    "train_data": torchvision.datasets.ImageFolder("/data/s1/buschjae/IMAGENETTE/imagenette2-160/train", transform = train_transformation()),
+                    "test_data": torchvision.datasets.ImageFolder("/data/s1/buschjae/IMAGENETTE/imagenette2-160/val", transform = test_transformation()),
                     "verbose":True
                 }
             )
@@ -298,7 +330,7 @@ for s in ["small","large"]:
                 {
                     "model":E2EEnsembleClassifier,
                     "n_estimators":m,
-                    "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                    "base_estimator": partial(mobilenetv3, size=s, model_type=t),
                     "optimizer":optimizer,
                     "scheduler":scheduler,
                     "loader":loader,
@@ -307,8 +339,8 @@ for s in ["small","large"]:
                     "loss_function":nn.CrossEntropyLoss(reduction="none"),
                     "use_amp":True,
                     "device":"cuda",
-                    "train_data": torchvision.datasets.FashionMNIST(".", train=True, transform = train_transformation()),
-                    "test_data": torchvision.datasets.FashionMNIST(".", train=False, transform = test_transformation()),
+                    "train_data": torchvision.datasets.ImageFolder("/data/s1/buschjae/IMAGENETTE/imagenette2-160/train", transform = train_transformation()),
+                    "test_data": torchvision.datasets.ImageFolder("/data/s1/buschjae/IMAGENETTE/imagenette2-160/val", transform = test_transformation()),
                     "verbose":True
                 }
             )
@@ -318,7 +350,7 @@ for s in ["small","large"]:
                     "model":SMCLClassifier,
                     "n_estimators":m,
                     "combination_type":"best",
-                    "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                    "base_estimator": partial(mobilenetv3, size=s, model_type=t),
                     "optimizer":optimizer,
                     "scheduler":scheduler,
                     "loader":loader,
@@ -327,8 +359,8 @@ for s in ["small","large"]:
                     "loss_function":nn.CrossEntropyLoss(reduction="none"),
                     "use_amp":True,
                     "device":"cuda",
-                    "train_data": torchvision.datasets.FashionMNIST(".", train=True, transform = train_transformation()),
-                    "test_data": torchvision.datasets.FashionMNIST(".", train=False, transform = test_transformation()),
+                    "train_data": torchvision.datasets.ImageFolder("/data/s1/buschjae/IMAGENETTE/imagenette2-160/train", transform = train_transformation()),
+                    "test_data": torchvision.datasets.ImageFolder("/data/s1/buschjae/IMAGENETTE/imagenette2-160/val", transform = test_transformation()),
                     "verbose":True
                 }
             )
@@ -341,7 +373,7 @@ for s in ["small","large"]:
                         "mode":"upper",
                         "l_reg":l_reg,
                         "combination_type":"average",
-                        "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                        "base_estimator": partial(mobilenetv3, size=s, model_type=t),
                         "optimizer":optimizer,
                         "scheduler":scheduler,
                         "loader":loader,
@@ -350,15 +382,15 @@ for s in ["small","large"]:
                         "loss_function":nn.CrossEntropyLoss(reduction="none"),
                         "use_amp":True,
                         "device":"cuda",
-                        "train_data": torchvision.datasets.FashionMNIST(".", train=True, transform = train_transformation()),
-                        "test_data": torchvision.datasets.FashionMNIST(".", train=False, transform = test_transformation()),
+                        "train_data": torchvision.datasets.ImageFolder("/data/s1/buschjae/IMAGENETTE/imagenette2-160/train", transform = train_transformation()),
+                        "test_data": torchvision.datasets.ImageFolder("/data/s1/buschjae/IMAGENETTE/imagenette2-160/val", transform = test_transformation()),
                         "verbose":True
                     }
                 )
 
 try:
     base = models[0]["base_estimator"]().cuda()
-    rnd_input = torch.rand((1, 1, 28, 28)).cuda()
+    rnd_input = torch.rand((1, 3, 128, 128)).cuda()
     print(summary(base, rnd_input))
 except:
     pass

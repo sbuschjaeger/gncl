@@ -27,6 +27,7 @@ dependencies:
     - torch==1.6.0+cu101 torchvision==0.7.0+cu101 -f https://download.pytorch.org/whl/torch_stable.html
     - scikit-learn
     - scipy
+    - gdown
     # - cloudpickle
     - adabelief-pytorch==0.1.0
     - -e file:./submodules/experiment_runner/
