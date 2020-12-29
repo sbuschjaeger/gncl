@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
+import os
 import sys
 import pickle
 import tarfile
 from datetime import datetime
 from functools import partial
+import argparse
+import glob
 
 import numpy as np
 import pandas as pd
@@ -16,441 +19,351 @@ from torch import nn
 from torch.autograd import Variable
 import torchvision
 import torchvision.transforms as transforms
-from torchsummary import summary
+from torchsummaryX import summary
 
 # Lets try the newest shit https://github.com/juntang-zhuang/Adabelief-Optimizer
 from adabelief_pytorch import AdaBelief
 
 from sklearn.metrics import make_scorer, accuracy_score
 
-from deep_ensembles_v2.Utils import Flatten, Clamp, Scale
+from pysembles.Utils import Flatten, Clamp, Scale
 
-from deep_ensembles_v2.Models import Model
-from deep_ensembles_v2.E2EEnsembleClassifier import E2EEnsembleClassifier
-from deep_ensembles_v2.BaggingClassifier import BaggingClassifier
-from deep_ensembles_v2.GNCLClassifier import GNCLClassifier
-from deep_ensembles_v2.StackingClassifier import StackingClassifier
-from deep_ensembles_v2.DeepDecisionTreeClassifier import DeepDecisionTreeClassifier
-from deep_ensembles_v2.SMCLClassifier import SMCLClassifier
-from deep_ensembles_v2.GradientBoostedNets import GradientBoostedNets
-from deep_ensembles_v2.SnapshotEnsembleClassifier import SnapshotEnsembleClassifier
+from pysembles.Models import Model
+from pysembles.E2EEnsembleClassifier import E2EEnsembleClassifier
+from pysembles.BaggingClassifier import BaggingClassifier
+from pysembles.GNCLClassifier import GNCLClassifier
+from pysembles.StackingClassifier import StackingClassifier
+from pysembles.DeepDecisionTreeClassifier import DeepDecisionTreeClassifier
+from pysembles.SMCLClassifier import SMCLClassifier
+from pysembles.GradientBoostedNets import GradientBoostedNets
+from pysembles.SnapshotEnsembleClassifier import SnapshotEnsembleClassifier
 
-from deep_ensembles_v2.models.BinarisedNeuralNetworks import BinaryConv2d, BinaryLinear, BinaryTanh
-from deep_ensembles_v2.Utils import pytorch_total_params, apply_in_batches, TransformTensorDataset
+from pysembles.models.BinarisedNeuralNetworks import BinaryConv2d, BinaryLinear, BinaryTanh
+from pysembles.Utils import pytorch_total_params, apply_in_batches, TransformTensorDataset
 
-from experiment_runner.experiment_runner import run_experiments
+from experiment_runner.experiment_runner_v2 import run_experiments, get_ctor_arguments
 
 #from ... import MobilenetV3
 # sys.path.append("..")
-from deep_ensembles_v2.Metrics import avg_accurcay,diversity,avg_loss,loss
-from deep_ensembles_v2.models.VGG import VGGNet
-from deep_ensembles_v2.models.SimpleResNet import SimpleResNet
-from deep_ensembles_v2.models.MobileNetV3 import MobileNetV3
-from deep_ensembles_v2.models.DenseNet import DenseNet3
-from deep_ensembles_v2.models.BinarisedNeuralNetworks import BinaryModel
-
-# from MobilenetV3 import mobilenetv3
-# from EfficientNet import EfficientNetB0
-# from ResNet import ResNet18, ResNet11
+from pysembles.Metrics import accuracy,avg_accurcay,diversity,avg_loss,loss
+from pysembles.models.VGG import VGGNet
+from pysembles.models.SimpleResNet import SimpleResNet
+from pysembles.models.MobileNetV3 import MobileNetV3
+from pysembles.models.BinarisedNeuralNetworks import BinaryModel
 
 # Constants for data normalization are taken from https://github.com/kuangliu/pytorch-cifar/blob/master/main.py 
-def read_data(arg, *args, **kwargs):
-    path, is_test = arg
+def train_transformation():
+    return transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+        ])
 
-    transform = transforms.Compose([
+def test_transformation():
+    return transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
     ])
+
+def pre(cfg):
+    model_ctor = cfg.pop("model")
+    tmpcfg = cfg
+    expected = {}
+    for key in get_ctor_arguments(model_ctor):
+        if key in tmpcfg:
+            expected[key] = tmpcfg[key]
     
-    dataset = torchvision.datasets.CIFAR100(root=path, train=not is_test, download=False, transform=transform)
-    loader = torch.utils.data.DataLoader(dataset, batch_size=len(dataset), shuffle=False, num_workers=4)
+    model = model_ctor(**expected)
+    return model
 
-    X = next(iter(loader))[0].numpy()
-    Y = next(iter(loader))[1].numpy()
+def post(cfg, model):
+    scores = {}
+    train_loader = torch.utils.data.DataLoader(cfg["train_data"], **cfg["loader"])
+    scores["train_loss"] = loss(model, train_loader)
+    scores["train_accuracy"] = accuracy(model, train_loader)
+    scores["train_diversity"] = diversity(model, train_loader)
+    scores["train_loss"] = loss(model, train_loader)
+    scores["train_avg_loss"] = avg_loss(model, train_loader)
+    scores["train_avg_accurcay"] = avg_accurcay(model, train_loader)
 
-    # X = np.random.normal(size=(256,3,32,32))
-    # Y = np.random.randint(2,size=(256,1))
-    return X,Y 
+    test_loader = torch.utils.data.DataLoader(cfg["test_data"], **cfg["loader"])
+    scores["test_loss"] = loss(model, test_loader)
+    scores["test_accuracy"] = accuracy(model, test_loader)
+    scores["test_diversity"] = diversity(model, test_loader)
+    scores["test_loss"] = loss(model, test_loader)
+    scores["test_avg_loss"] = avg_loss(model, test_loader)
+    scores["test_avg_accurcay"] = avg_accurcay(model, test_loader)
+    scores["params"] = pytorch_total_params(model)
 
-# I guess this is MobileNetV1 ? Should check the paper :D
-def mobilenet_model(model_type, *args, **kwargs):
-    if "binary" in model_type:
-        ConvLayer = BinaryConv2d
-        LinearLayer = BinaryLinear
-        Activation = BinaryTanh
-    else:
-        ConvLayer = nn.Conv2d
-        LinearLayer = nn.Linear
-        Activation = nn.ReLU
+    return scores
 
-    # https://modelzoo.co/model/pytorch-mobilenet
-    def conv_bn(inp, oup, stride):
-        return [
-            ConvLayer(inp, oup, 3, stride, 1, bias=False),
-            nn.BatchNorm2d(oup),
-            Activation()
-        ]
+def fit(cfg, model):
+    checkpoints = glob.glob(os.path.join(cfg["out_path"], "*.tar"))
+    if len(checkpoints) > 0:
+        print("Found some checkpoints - loading!")
+        epochs = [ (int(os.path.basename(fname)[:-4].split("_")[1]), fname) for fname in checkpoints]
+        
+        # Per default python checks for the first argument in tuples. 
+        _ , checkpoint_to_load = max(epochs)
+        print("Loading {}".format(checkpoint_to_load))
 
-    def conv_dw(inp, oup, stride):
-        return [
-            ConvLayer(inp, inp, 3, stride, 1, groups=inp, bias=False),
-            nn.BatchNorm2d(inp),
-            Activation(),
-            ConvLayer(inp, oup, 1, 1, 0, bias=False),
-            nn.BatchNorm2d(oup),
-            Activation()
-        ]
-    
-    model = []
-    model.extend(conv_bn(  3,  32, 2))
-    model.extend(conv_dw( 32,  64, 1))
-    model.extend(conv_dw( 64, 128, 2))
-    model.extend(conv_dw(128, 128, 1))
-    model.extend(conv_dw(128, 256, 2))
-    model.extend(conv_dw(256, 256, 1))
-    model.extend(conv_dw(256, 512, 2))
-    
-    model.extend( [
-        nn.AvgPool2d(2),
-        Flatten(),
-        None if not "binary" in model_type else nn.BatchNorm1d(512),
-        LinearLayer(512, 100),
-        None if not "binary" in model_type else Scale()
-        #nn.Softmax()
-    ] )
-    model = filter(None, model)
-    
-    return nn.Sequential(*model)
-    # return nn.Sequential(
-    #     conv_bn(  3,  32, 2), 
-    #     conv_dw( 32,  64, 1),
-    #     conv_dw( 64, 128, 2),
-    #     # conv_dw(128, 128, 1),
-    #     # conv_dw(128, 256, 2),
-    #     # conv_dw(256, 256, 1),
-    #     # conv_dw(256, 512, 2),
-    #     # conv_dw(512, 512, 1),
-    #     # conv_dw(512, 512, 1),
-    #     # conv_dw(512, 512, 1),
-    #     # conv_dw(512, 512, 1),
-    #     # conv_dw(512, 512, 1),
-    #     # conv_dw(512, 1024, 2),
-    #     # conv_dw(1024, 1024, 1),
-    #     nn.AvgPool2d(7),
-    #     Flatten(),
-    #     LinearLayer(1024, 100)
-    # )
-    #self.fc = nn.Linear(1024, 1000)
+        checkpoint = torch.load(checkpoint_to_load)
+        model.restore_checkoint(checkpoint_to_load)
+        model.epochs = cfg["optimizer"]["epochs"]
 
-basecfg = { 
-    "no_runs":1,
-    "train":("/data/s1/buschjae/CIFAR100/", False),
-    "test":("/data/s1/buschjae/CIFAR100/", True),
-    "data_loader":read_data,
-    "scoring": {
-        # TODO Maybe add "scoring" to Model and score it on each eval?
-        'accuracy': make_scorer(accuracy_score, greater_is_better=True),
-        'params': pytorch_total_params,
-        'diversity': diversity,
-        'avg_accurcay' : avg_accurcay,
-        'avg_loss' : avg_loss,
-        'loss' : loss
-    },
-    "out_path":datetime.now().strftime('%d-%m-%Y-%H:%M:%S'),
-    "store_model":False
-}
+    model.fit(cfg["train_data"])
+    return model
 
-DEBUG = True
+parser = argparse.ArgumentParser()
+parser.add_argument("-l", "--local", help="Run on local machine",action="store_true", default=False)
+parser.add_argument("-r", "--ray", help="Run via Ray",action="store_true", default=False)
+parser.add_argument("--ray_head", help="Run via Ray",action="store_true", default="auto")
+parser.add_argument("--redis_password", help="Run via Ray",action="store_true", default="5241590000000000")
+args = parser.parse_args()
 
-if DEBUG:
-    basecfg.update({
-        "verbose":True,
-        "local_mode":True
-    })
+if (args.local and args.ray) or (not args.local and not args.ray):
+    print("Either you specified to use both, ray _and_ local mode or you specified to use none of both. Please choose either. Defaulting to `local` processing.")
+    args.local = True
+
+
+if args.local:
+    basecfg = {
+        "out_path":os.path.join(datetime.now().strftime('%d-%m-%Y-%H:%M:%S')),
+        "pre": pre,
+        "post": post,
+        "fit": fit,
+        "backend": "local",
+        "verbose":False
+    }
 else:
-    basecfg.update({
-        "verbose":False,
-        "local_mode":False,
-        "ray_head":"auto",
-        "redis_password":"5241590000000000",
-        "num_cpus":5,
-        "num_gpus":1
-    })
+    pass
+    # basecfg = {
+    #     "out_path":os.path.join("FASHION", "results", datetime.now().strftime('%d-%m-%Y-%H:%M:%S')),
+    #     "pre": pre,
+    #     "post": post,
+    #     "fit": fit,
+    #     "backend": "ray",
+    #     "ray_head": args.ray_head,
+    #     "redis_password": args.redis_password,
+    #     "verbose":False
+    # }
 
-cuda_devices = [0]
+
 models = []
 
-# models.append(
-#     {
-#         "model": StackingClassifier,
-#         "n_estimators":16,
-#         "base_estimator": partial(mobilenet_model, model_type="float"),
-#         "classifier" : lambda : nn.Sequential( torch.nn.Linear(16*100,100) ),
-#         "optimizer":optimizer,
-#         "scheduler":scheduler,
-#         "eval_test":5,
-#         "loss_function":nn.CrossEntropyLoss(reduction="none"),
-#         # TODO The transformer is not applied during scoring, which so that training data is not normalized during final scoring
-#         # IDEA: Introduce test and train transformer so that the model applies it on its own during testing / training?! 
-#         "transformer": 
-#             transforms.Compose([
-#                 transforms.ToPILImage(),
-#                 transforms.RandomCrop(32, padding=4),
-#                 transforms.RandomHorizontalFlip(),
-#                 transforms.ToTensor(),
-#                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-#             ])
-#     }
-# )
+scheduler = {
+    "method" : torch.optim.lr_scheduler.StepLR,
+    "step_size" : 50,
+    "gamma": 0.5
+}
 
-for s in ["small", "large"]:
-    for t in ["float", "binary"]:
-        # scheduler = {
-        #     "method" : torch.optim.lr_scheduler.CosineAnnealingLR,
-        #     "T_max" : 20
-        # }
-        scheduler = {
-            "method" : torch.optim.lr_scheduler.StepLR,
-            "step_size" : 25,
-            "gamma": 0.5
+optimizer = {
+    #"method" : AdaBelief, # torch.optim.Adam, #if "binary" in t else torch.optim.SGD,
+    "method" : AdaBelief,
+    "lr" : 1e-2, #1e-3, #if "binary" in t else 0.1,
+    # "momentum" : 0.9,
+    # "nesterov" : True,
+    # "weight_decay" : 1e-4, 
+    "epochs" : 200,
+    "eps" : 1e-12,
+    "betas" : (0.9,0.999)
+}
+
+loader = {
+    "num_workers": 1, 
+    "batch_size" : 256,
+    "pin_memory": True
+}
+
+def simpleresnet(size, model_type):
+    if "small" == size:
+        n_channels = 32
+        depth = 4
+    else:
+        n_channels = 96
+        depth = 4
+
+    if "binary" == model_type:
+        return BinaryModel(SimpleResNet(in_channels = 3, n_channels = n_channels, depth = depth, num_classes=100), keep_activation=True)
+    else:
+        return SimpleResNet(in_channels = 3, n_channels = n_channels, depth = depth, num_classes=100)
+
+def stacking_classifier(model_type):
+    classifier = torch.nn.Linear(16*100,100)
+
+    if "binary" == model_type:
+        return BinaryModel(classifier, keep_activation=True)
+    else:
+        return classifier
+
+#for s, t in [ ("small", "binary"), ("small", "float"), ("large", "float")]: 
+for s, t in [ ("small", "float"), ("large", "float")]: 
+    models.append(
+        {
+            "model":Model,
+            "base_estimator": partial(simpleresnet, size=s, model_type=t),
+            "optimizer":optimizer,
+            "scheduler":scheduler,
+            "loader":loader,
+            "eval_every":5,
+            "store_every":0,
+            "loss_function":nn.CrossEntropyLoss(reduction="none"),
+            "use_amp":True,
+            "device":"cuda",
+            "train_data": torchvision.datasets.CIFAR100(".", train=True, transform = train_transformation(), download = True),
+            "test_data": torchvision.datasets.CIFAR100(".", train=False, transform = test_transformation(), download = True),
+            "verbose":True
         }
+    )
 
-        optimizer = {
-            "method" : AdaBelief, # torch.optim.Adam, #if "binary" in t else torch.optim.SGD,
-            "lr" : 1e-3, #1e-3, #if "binary" in t else 0.1,
-            # "momentum" : 0.9,
-            # "nesterov" : True,
-            # "weight_decay" : 1e-4, 
-            "epochs" : 100,
-            "batch_size" : 128,
-            "eps" : 1e-12,
-            "betas" : (0.9,0.999)
-        }
+    for m in [16]:
+        models.append(
+            {
+                "model":StackingClassifier,
+                "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                "classifier" : partial(stacking_classifier, model_type=t),
+                "n_estimators":m,
+                "optimizer":optimizer,
+                "scheduler":scheduler,
+                "loader":loader,
+                "eval_every":5,
+                "store_every":0,
+                "loss_function":nn.CrossEntropyLoss(reduction="none"),
+                "use_amp":True,
+                "device":"cuda",
+                "train_data": torchvision.datasets.CIFAR100(".", train=True, transform = train_transformation()),
+                "test_data": torchvision.datasets.CIFAR100(".", train=False, transform = test_transformation()),
+                "verbose":True
+            }
+        )
 
-        # def mobilenetv3(size, model_type):
-        #     if "binary" == model_type:
-        #         return BinaryModel(MobileNetV3(mode=size, classes_num=100, input_size=32, width_multiplier=1.0, dropout=0.2, BN_momentum=0.1, zero_gamma=False, in_channels = 3), keep_activation=True)
-        #     else:
-        #         return MobileNetV3(mode=size, classes_num=100, input_size=32, width_multiplier=1.0, dropout=0.2, BN_momentum=0.1, zero_gamma=False, in_channels = 3)
+        models.append(
+            {
+                "model":BaggingClassifier,
+                "n_estimators":m,
+                "train_method":"fast",
+                "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                "optimizer":optimizer,
+                "scheduler":scheduler,
+                "loader":loader,
+                "eval_every":5,
+                "store_every":0,
+                "loss_function":nn.CrossEntropyLoss(reduction="none"),
+                "use_amp":True,
+                "device":"cuda",
+                "train_data": torchvision.datasets.CIFAR100(".", train=True, transform = train_transformation()),
+                "test_data": torchvision.datasets.CIFAR100(".", train=False, transform = test_transformation()),
+                "verbose":True
+            }
+        )
 
-        def densenetv3(size, model_type):
-            if "small" == size:
-                depth = 25
-            else:
-                depth = 50
+        models.append(
+            {
+                "model":GradientBoostedNets,
+                "n_estimators":m,
+                "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                "optimizer":optimizer,
+                "scheduler":scheduler,
+                "loader":loader,
+                "eval_every":5,
+                "store_every":0,
+                "loss_function":nn.CrossEntropyLoss(reduction="none"),
+                "use_amp":True,
+                "device":"cuda",
+                "train_data": torchvision.datasets.CIFAR100(".", train=True, transform = train_transformation()),
+                "test_data": torchvision.datasets.CIFAR100(".", train=False, transform = test_transformation()),
+                "verbose":True
+            }
+        )
 
-            if "binary" == model_type:
-                return BinaryModel(DenseNet3(depth = depth, num_classes=100), keep_activation=True)
-            else:
-                return DenseNet3(depth = depth, num_classes=100)
+        models.append(
+            {
+                "model":SnapshotEnsembleClassifier,
+                "n_estimators":m,
+                "list_of_snapshots":[2,3,4,5,10,15,20,25,30,40,50,60,70,80,90],
+                "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                "optimizer":optimizer,
+                "scheduler":scheduler,
+                "loader":loader,
+                "eval_every":5,
+                "store_every":0,
+                "loss_function":nn.CrossEntropyLoss(reduction="none"),
+                "use_amp":True,
+                "device":"cuda",
+                "train_data": torchvision.datasets.CIFAR100(".", train=True, transform = train_transformation()),
+                "test_data": torchvision.datasets.CIFAR100(".", train=False, transform = test_transformation()),
+                "verbose":True
+            }
+        )
 
-        def simpleresnet(size, model_type):
-            if "small" == size:
-                n_channels = 32
-                depth = 4
-            else:
-                n_channels = 96
-                depth = 4
+        models.append(
+            {
+                "model":E2EEnsembleClassifier,
+                "n_estimators":m,
+                "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                "optimizer":optimizer,
+                "scheduler":scheduler,
+                "loader":loader,
+                "eval_every":5,
+                "store_every":0,
+                "loss_function":nn.CrossEntropyLoss(reduction="none"),
+                "use_amp":True,
+                "device":"cuda",
+                "train_data": torchvision.datasets.CIFAR100(".", train=True, transform = train_transformation()),
+                "test_data": torchvision.datasets.CIFAR100(".", train=False, transform = test_transformation()),
+                "verbose":True
+            }
+        )
 
-            if "binary" == model_type:
-                return BinaryModel(SimpleResNet(n_channels = n_channels, depth = depth, num_classes=100), keep_activation=True)
-            else:
-                return SimpleResNet(n_channels = n_channels, depth = depth, num_classes=100)
-        
-        # models.append(
-        #     {
-        #         "model":Model,
-        #         "base_estimator": partial(simpleresnet, size=s, model_type=t),
-        #         "optimizer":optimizer,
-        #         "scheduler":scheduler,
-        #         "eval_test":1,
-        #         "loss_function":nn.CrossEntropyLoss(reduction="none"),
-        #         "transformer":
-        #             transforms.Compose([
-        #                 # After loading we normlaize the input data, which is fine.
-        #                 # For training however, we want to transform it a bit and _then_ normalize it. Thus, we inverse the normalization first
-        #                 transforms.Normalize(
-        #                     mean= [-m/s for m, s in zip([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])],
-        #                     std= [1/s for s in [0.2023, 0.1994, 0.2010]]
-        #                 ),
-        #                 transforms.ToPILImage(),
-        #                 transforms.RandomCrop(32, padding=4),
-        #                 transforms.RandomHorizontalFlip(),
-        #                 transforms.ToTensor(),
-        #                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-        #             ])
-        #     }
-        # )
+        models.append(
+            {
+                "model":SMCLClassifier,
+                "n_estimators":m,
+                "combination_type":"best",
+                "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                "optimizer":optimizer,
+                "scheduler":scheduler,
+                "loader":loader,
+                "eval_every":5,
+                "store_every":0,
+                "loss_function":nn.CrossEntropyLoss(reduction="none"),
+                "use_amp":True,
+                "device":"cuda",
+                "train_data": torchvision.datasets.CIFAR100(".", train=True, transform = train_transformation()),
+                "test_data": torchvision.datasets.CIFAR100(".", train=False, transform = test_transformation()),
+                "verbose":True
+            }
+        )
 
-        for m in [16]:
-            # models.append(
-            #     {
-            #         "model":BaggingClassifier,
-            #         "n_estimators":m,
-            #         "train_method":"fast",
-            #         "base_estimator": partial(simpleresnet, size=s, model_type=t),
-            #         "optimizer":optimizer,
-            #         "scheduler":scheduler,
-            #         "eval_test":5,
-            #         "loss_function":nn.CrossEntropyLoss(reduction="none"),
-            #         "transformer":
-            #             transforms.Compose([
-            #                 # After loading we normlaize the input data, which is fine.
-            #                 # For training however, we want to transform it a bit and _then_ normalize it. Thus, we inverse the normalization first
-            #                 transforms.Normalize(
-            #                     mean= [-m/s for m, s in zip([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])],
-            #                     std= [1/s for s in [0.2023, 0.1994, 0.2010]]
-            #                 ),
-            #                 transforms.ToPILImage(),
-            #                 transforms.RandomCrop(32, padding=4),
-            #                 transforms.RandomHorizontalFlip(),
-            #                 transforms.ToTensor(),
-            #                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-            #             ])
-            #     }
-            # )
-
-            # models.append(
-            #     {
-            #         "model":GradientBoostedNets,
-            #         "n_estimators":m,
-            #         "base_estimator": partial(simpleresnet, size=s, model_type=t),
-            #         "optimizer":optimizer,
-            #         "scheduler":scheduler,
-            #         "eval_test":5,
-            #         "loss_function":nn.CrossEntropyLoss(reduction="none"),
-            #         "transformer":
-            #             transforms.Compose([
-            #                 # After loading we normlaize the input data, which is fine.
-            #                 # For training however, we want to transform it a bit and _then_ normalize it. Thus, we inverse the normalization first
-            #                 transforms.Normalize(
-            #                     mean= [-m/s for m, s in zip([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])],
-            #                     std= [1/s for s in [0.2023, 0.1994, 0.2010]]
-            #                 ),
-            #                 transforms.ToPILImage(),
-            #                 transforms.RandomCrop(32, padding=4),
-            #                 transforms.RandomHorizontalFlip(),
-            #                 transforms.ToTensor(),
-            #                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-            #             ])
-            #     }
-            # )
-
+        for l_reg in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]: 
             models.append(
                 {
-                    "model":SnapshotEnsembleClassifier,
-                    # "n_estimators":5,
-                    # "list_of_snapshots":[2,3,4,5],
+                    "model":GNCLClassifier,
                     "n_estimators":m,
-                    "list_of_snapshots":[2,3,4,5,10,15,20,25,30,40,50,60,70,80,90],
+                    "mode":"upper",
+                    "l_reg":l_reg,
+                    "combination_type":"average",
                     "base_estimator": partial(simpleresnet, size=s, model_type=t),
                     "optimizer":optimizer,
                     "scheduler":scheduler,
-                    "eval_test":5,
+                    "loader":loader,
+                    "eval_every":5,
+                    "store_every":0,
                     "loss_function":nn.CrossEntropyLoss(reduction="none"),
-                    "transformer":
-                        transforms.Compose([
-                            # After loading we normlaize the input data, which is fine.
-                            # For training however, we want to transform it a bit and _then_ normalize it. Thus, we inverse the normalization first
-                            transforms.Normalize(
-                                mean= [-m/s for m, s in zip([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])],
-                                std= [1/s for s in [0.2023, 0.1994, 0.2010]]
-                            ),
-                            transforms.ToPILImage(),
-                            transforms.RandomCrop(32, padding=4),
-                            transforms.RandomHorizontalFlip(),
-                            transforms.ToTensor(),
-                            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-                        ])
+                    "use_amp":True,
+                    "device":"cuda",
+                    "train_data": torchvision.datasets.CIFAR100(".", train=True, transform = train_transformation()),
+                    "test_data": torchvision.datasets.CIFAR100(".", train=False, transform = test_transformation()),
+                    "verbose":True
                 }
             )
-            # models.append(
-            #     {
-            #         "model":E2EEnsembleClassifier,
-            #         "n_estimators":m,
-            #         "base_estimator": partial(simpleresnet, size=s, model_type=t),
-            #         "optimizer":optimizer,
-            #         "scheduler":scheduler,
-            #         "eval_test":5,
-            #         "loss_function":nn.CrossEntropyLoss(reduction="none"),
-            #         "transformer":
-            #             transforms.Compose([
-            #                 # After loading we normlaize the input data, which is fine.
-            #                 # For training however, we want to transform it a bit and _then_ normalize it. Thus, we inverse the normalization first
-            #                 transforms.Normalize(
-            #                     mean= [-m/s for m, s in zip([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])],
-            #                     std= [1/s for s in [0.2023, 0.1994, 0.2010]]
-            #                 ),
-            #                 transforms.ToPILImage(),
-            #                 transforms.RandomCrop(32, padding=4),
-            #                 transforms.RandomHorizontalFlip(),
-            #                 transforms.ToTensor(),
-            #                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-            #             ])
-            #     }
-            # )
-
-            # models.append(
-            #     {
-            #         "model":SMCLClassifier,
-            #         "n_estimators":m,
-            #         "combination_type":"best",
-            #         "base_estimator": partial(simpleresnet, size=s, model_type=t),
-            #         "optimizer":optimizer,
-            #         "scheduler":scheduler,
-            #         "eval_test":5,
-            #         "loss_function":nn.CrossEntropyLoss(reduction="none"),
-            #         "transformer":
-            #             transforms.Compose([
-            #                 # After loading we normlaize the input data, which is fine.
-            #                 # For training however, we want to transform it a bit and _then_ normalize it. Thus, we inverse the normalization first
-            #                 transforms.Normalize(
-            #                     mean= [-m/s for m, s in zip([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])],
-            #                     std= [1/s for s in [0.2023, 0.1994, 0.2010]]
-            #                 ),
-            #                 transforms.ToPILImage(),
-            #                 transforms.RandomCrop(32, padding=4),
-            #                 transforms.RandomHorizontalFlip(),
-            #                 transforms.ToTensor(),
-            #                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-            #             ])
-            #     }
-            # )
-
-            # for l_reg in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]: 
-            #     models.append(
-            #         {
-            #             "model":GNCLClassifier,
-            #             "n_estimators":m,
-            #             "mode":"upper",
-            #             "l_reg":l_reg,
-            #             "combination_type":"average",
-            #             "base_estimator": partial(simpleresnet, size=s, model_type=t),
-            #             "optimizer":optimizer,
-            #             "scheduler":scheduler,
-            #             "eval_test":5,
-            #             "loss_function":nn.CrossEntropyLoss(reduction="none"),
-            #             "transformer":
-            #                 transforms.Compose([
-            #                     # After loading we normlaize the input data, which is fine.
-            #                     # For training however, we want to transform it a bit and _then_ normalize it. Thus, we inverse the normalization first
-            #                     transforms.Normalize(
-            #                         mean= [-m/s for m, s in zip([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])],
-            #                         std= [1/s for s in [0.2023, 0.1994, 0.2010]]
-            #                     ),
-            #                     transforms.ToPILImage(),
-            #                     transforms.RandomCrop(32, padding=4),
-            #                     transforms.RandomHorizontalFlip(),
-            #                     transforms.ToTensor(),
-            #                     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-            #                 ])
-            #         }
-            #     )
 
 try:
     base = models[0]["base_estimator"]().cuda()
-    print(summary(base, (3, 32, 32)))
+    rnd_input = torch.rand((1, 3, 32, 32)).cuda()
+    print(summary(base, rnd_input))
 except:
     pass
 
-run_experiments(basecfg, models, cuda_devices = cuda_devices, n_cores=len(cuda_devices))
+run_experiments(basecfg, models)

@@ -158,18 +158,18 @@ scheduler = {
 optimizer = {
     #"method" : AdaBelief, # torch.optim.Adam, #if "binary" in t else torch.optim.SGD,
     "method" : AdaBelief,
-    "lr" : 1e-3, #1e-3, #if "binary" in t else 0.1,
+    "lr" : 1e-2, #1e-3, #if "binary" in t else 0.1,
     # "momentum" : 0.9,
     # "nesterov" : True,
     # "weight_decay" : 1e-4, 
-    "epochs" : 100,
+    "epochs" : 150,
     "eps" : 1e-12,
     "betas" : (0.9,0.999)
 }
 
 loader = {
     "num_workers": 1, 
-    "batch_size" : 128,
+    "batch_size" : 256,
     "pin_memory": True
 }
 
