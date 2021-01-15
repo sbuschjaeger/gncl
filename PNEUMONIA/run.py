@@ -43,31 +43,31 @@ from pysembles.Utils import pytorch_total_params, apply_in_batches, TransformTen
 
 from experiment_runner.experiment_runner_v2 import run_experiments, get_ctor_arguments
 
-#from ... import MobilenetV3
-# sys.path.append("..")
 from pysembles.Metrics import accuracy,avg_accurcay,diversity,avg_loss,loss
 from pysembles.models.VGG import VGGNet
 from pysembles.models.SimpleResNet import SimpleResNet
 from pysembles.models.MobileNetV3 import MobileNetV3
 from pysembles.models.BinarisedNeuralNetworks import BinaryModel
 
-# Constants for data normalization are taken from https://github.com/kuangliu/pytorch-cifar/blob/master/main.py 
-def train_transformation():
+def train_transformation(img_size):
     return transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            transforms.Grayscale(),
+            transforms.RandomRotation(degrees = 5),
+            transforms.RandomResizedCrop(size = (img_size, img_size)),
+            # transforms.Resize(size = (img_size, img_size)),
+            transforms.ToTensor()
+            #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
         ])
 
-def test_transformation():
+def test_transformation(img_size):
     return transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+        transforms.Grayscale(),
+        transforms.Resize(size = (img_size, img_size)),
+        transforms.ToTensor()
     ])
 
 def one_hot_mse(output, target):
-    one_hot = torch.nn.functional.one_hot(target, num_classes = 100)
+    one_hot = torch.nn.functional.one_hot(target, num_classes = 2)
     loss = (output - one_hot)**2
     return loss.sum(axis=1)
 
@@ -206,7 +206,7 @@ scheduler = {
 optimizer = {
     #"method" : AdaBelief, # torch.optim.Adam, #if "binary" in t else torch.optim.SGD,
     "method" : AdaBelief,
-    "lr" : 1e-3, #1e-3, #if "binary" in t else 0.1,
+    "lr" : 1e-4, #1e-3, #if "binary" in t else 0.1,
     # "momentum" : 0.9,
     # "nesterov" : True,
     # "weight_decay" : 1e-4, 
@@ -216,8 +216,8 @@ optimizer = {
 }
 
 loader = {
-    "num_workers": 1, 
-    "batch_size" : 256,
+    "num_workers": 20, 
+    "batch_size" : 32,
     "pin_memory": True
 }
 
@@ -225,190 +225,197 @@ def simpleresnet(size, model_type):
     if "small" == size:
         n_channels = 32
         depth = 4
+        #lin_size = 1024
+        lin_size = 512
     else:
         n_channels = 96
         depth = 4
+        lin_size = 1536
 
     if "binary" == model_type:
-        return BinaryModel(SimpleResNet(in_channels = 3, n_channels = n_channels, depth = depth, num_classes=100), keep_activation=True)
+        return BinaryModel(SimpleResNet(in_channels = 1, n_channels = n_channels, depth = depth, num_classes=2, lin_size=lin_size), keep_activation=True)
     else:
-        return SimpleResNet(in_channels = 3, n_channels = n_channels, depth = depth, num_classes=100)
+        return SimpleResNet(in_channels = 1, n_channels = n_channels, depth = depth, num_classes=2, lin_size=lin_size)
 
 def stacking_classifier(model_type):
-    classifier = torch.nn.Linear(16*100,100)
+    classifier = torch.nn.Linear(8*2,2)
 
     if "binary" == model_type:
         return BinaryModel(classifier, keep_activation=True)
     else:
         return classifier
 
-loss_function = one_hot_mse
+train_path = "/data/s1/buschjae/PNEUMONIA/chest_xray/train"
+test_path = "/data/s1/buschjae/PNEUMONIA/chest_xray/test"
+
+#loss_function = one_hot_mse
 #loss_function = nn.CrossEntropyLoss(reduction="none")
 
-for s, t in [ ("small", "float"), ("large", "float"), ("small", "binary")]: 
-    for m in [16]:
+for lfn in ["mse"]:
+    for s, t in [ ("small", "float"), ("small", "binary"), ("large", "float")]: 
         models.append(
             {
-                "model":BaggingClassifier,
-                "n_estimators":m,
-                "train_method":"fast",
+                "model":Model,
                 "base_estimator": partial(simpleresnet, size=s, model_type=t),
                 "optimizer":optimizer,
                 "scheduler":scheduler,
                 "loader":loader,
                 "eval_every":5,
                 "store_every":0,
-                "loss_function":loss_function,
+                "loss_function":nn.CrossEntropyLoss(reduction="none") if lfn == "cross-entropy" else one_hot_mse,
                 "use_amp":False,
                 "device":"cuda",
-                "train_data": torchvision.datasets.CIFAR100(".", train=True, transform = train_transformation()),
-                "test_data": torchvision.datasets.CIFAR100(".", train=False, transform = test_transformation()),
+                "train_data": torchvision.datasets.ImageFolder(train_path, transform = train_transformation(64)),
+                "test_data": torchvision.datasets.ImageFolder(test_path, transform = test_transformation(64)),
                 "verbose":True
             }
         )
 
-        models.append(
-            {
-                "model":StackingClassifier,
-                "base_estimator": partial(simpleresnet, size=s, model_type=t),
-                "classifier" : partial(stacking_classifier, model_type=t),
-                "n_estimators":m,
-                "optimizer":optimizer,
-                "scheduler":scheduler,
-                "loader":loader,
-                "eval_every":5,
-                "store_every":0,
-                "loss_function":loss_function,
-                "use_amp":False,
-                "device":"cuda",
-                "train_data": torchvision.datasets.CIFAR100(".", train=True, transform = train_transformation()),
-                "test_data": torchvision.datasets.CIFAR100(".", train=False, transform = test_transformation()),
-                "verbose":True
-            }
-        )
-
-        models.append(
-            {
-                "model":GradientBoostedNets,
-                "n_estimators":m,
-                "base_estimator": partial(simpleresnet, size=s, model_type=t),
-                "optimizer":optimizer,
-                "scheduler":scheduler,
-                "loader":loader,
-                "eval_every":5,
-                "store_every":0,
-                "loss_function":loss_function,
-                "use_amp":False,
-                "device":"cuda",
-                "train_data": torchvision.datasets.CIFAR100(".", train=True, transform = train_transformation()),
-                "test_data": torchvision.datasets.CIFAR100(".", train=False, transform = test_transformation()),
-                "verbose":True
-            }
-        )
-
-        models.append(
-            {
-                "model":SnapshotEnsembleClassifier,
-                "n_estimators":m,
-                "list_of_snapshots":[2,3,4,5,10,15,20,25,30,40,50,60,70,80,90],
-                "base_estimator": partial(simpleresnet, size=s, model_type=t),
-                "optimizer":optimizer,
-                "scheduler":scheduler,
-                "loader":loader,
-                "eval_every":5,
-                "store_every":0,
-                "loss_function":loss_function,
-                "use_amp":False,
-                "device":"cuda",
-                "train_data": torchvision.datasets.CIFAR100(".", train=True, transform = train_transformation()),
-                "test_data": torchvision.datasets.CIFAR100(".", train=False, transform = test_transformation()),
-                "verbose":True
-            }
-        )
-
-        models.append(
-            {
-                "model":E2EEnsembleClassifier,
-                "n_estimators":m,
-                "base_estimator": partial(simpleresnet, size=s, model_type=t),
-                "optimizer":optimizer,
-                "scheduler":scheduler,
-                "loader":loader,
-                "eval_every":5,
-                "store_every":0,
-                "loss_function":loss_function,
-                "use_amp":False,
-                "device":"cuda",
-                "train_data": torchvision.datasets.CIFAR100(".", train=True, transform = train_transformation()),
-                "test_data": torchvision.datasets.CIFAR100(".", train=False, transform = test_transformation()),
-                "verbose":True
-            }
-        )
-
-        models.append(
-            {
-                "model":SMCLClassifier,
-                "n_estimators":m,
-                "combination_type":"best",
-                "base_estimator": partial(simpleresnet, size=s, model_type=t),
-                "optimizer":optimizer,
-                "scheduler":scheduler,
-                "loader":loader,
-                "eval_every":5,
-                "store_every":0,
-                "loss_function":loss_function,
-                "use_amp":False,
-                "device":"cuda",
-                "train_data": torchvision.datasets.CIFAR100(".", train=True, transform = train_transformation()),
-                "test_data": torchvision.datasets.CIFAR100(".", train=False, transform = test_transformation()),
-                "verbose":True
-            }
-        )
-
-        for l_reg in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]: 
+        for m in [8]:
             models.append(
                 {
-                    "model":GNCLClassifier,
+                    "model":StackingClassifier,
+                    "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                    "classifier" : partial(stacking_classifier, model_type=t),
                     "n_estimators":m,
-                    "mode":"upper",
-                    "l_reg":l_reg,
-                    "combination_type":"average",
+                    "optimizer":optimizer,
+                    "scheduler":scheduler,
+                    "loader":loader,
+                    "eval_every":5,
+                    "store_every":0,
+                    "loss_function":nn.CrossEntropyLoss(reduction="none") if lfn == "cross-entropy" else one_hot_mse,
+                    "use_amp":False,
+                    "device":"cuda",
+                    "train_data": torchvision.datasets.ImageFolder(train_path, transform = train_transformation(64)),
+                    "test_data": torchvision.datasets.ImageFolder(test_path, transform = test_transformation(64)),
+                    "verbose":True
+                }
+            )
+
+            models.append(
+                {
+                    "model":BaggingClassifier,
+                    "n_estimators":m,
+                    "train_method":"fast",
                     "base_estimator": partial(simpleresnet, size=s, model_type=t),
                     "optimizer":optimizer,
                     "scheduler":scheduler,
                     "loader":loader,
                     "eval_every":5,
                     "store_every":0,
-                    "loss_function":loss_function,
+                    "loss_function":nn.CrossEntropyLoss(reduction="none") if lfn == "cross-entropy" else one_hot_mse,
                     "use_amp":False,
                     "device":"cuda",
-                    "train_data": torchvision.datasets.CIFAR100(".", train=True, transform = train_transformation()),
-                    "test_data": torchvision.datasets.CIFAR100(".", train=False, transform = test_transformation()),
+                    "train_data": torchvision.datasets.ImageFolder(train_path, transform = train_transformation(64)),
+                    "test_data": torchvision.datasets.ImageFolder(test_path, transform = test_transformation(64)),
                     "verbose":True
                 }
             )
 
-    models.append(
-        {
-            "model":Model,
-            "base_estimator": partial(simpleresnet, size=s, model_type=t),
-            "optimizer":optimizer,
-            "scheduler":scheduler,
-            "loader":loader,
-            "eval_every":5,
-            "store_every":0,
-            "loss_function":loss_function,
-            "use_amp":False,
-            "device":"cuda",
-            "train_data": torchvision.datasets.CIFAR100(".", train=True, transform = train_transformation(), download = True),
-            "test_data": torchvision.datasets.CIFAR100(".", train=False, transform = test_transformation(), download = True),
-            "verbose":True
-        }
-    )
+            models.append(
+                {
+                    "model":GradientBoostedNets,
+                    "n_estimators":m,
+                    "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                    "optimizer":optimizer,
+                    "scheduler":scheduler,
+                    "loader":loader,
+                    "eval_every":5,
+                    "store_every":0,
+                    "loss_function":nn.CrossEntropyLoss(reduction="none") if lfn == "cross-entropy" else one_hot_mse,
+                    "use_amp":False,
+                    "device":"cuda",
+                    "train_data": torchvision.datasets.ImageFolder(train_path, transform = train_transformation(64)),
+                    "test_data": torchvision.datasets.ImageFolder(test_path, transform = test_transformation(64)),
+                    "verbose":True
+                }
+            )
+
+            models.append(
+                {
+                    "model":SnapshotEnsembleClassifier,
+                    "n_estimators":m,
+                    "list_of_snapshots":[2,3,4,5,10,15,20,25,30,40,50,60,70,80,90],
+                    "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                    "optimizer":optimizer,
+                    "scheduler":scheduler,
+                    "loader":loader,
+                    "eval_every":5,
+                    "store_every":0,
+                    "loss_function":nn.CrossEntropyLoss(reduction="none") if lfn == "cross-entropy" else one_hot_mse,
+                    "use_amp":False,
+                    "device":"cuda",
+                    "train_data": torchvision.datasets.ImageFolder(train_path, transform = train_transformation(64)),
+                    "test_data": torchvision.datasets.ImageFolder(test_path, transform = test_transformation(64)),
+                    "verbose":True
+                }
+            )
+
+            models.append(
+                {
+                    "model":E2EEnsembleClassifier,
+                    "n_estimators":m,
+                    "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                    "optimizer":optimizer,
+                    "scheduler":scheduler,
+                    "loader":loader,
+                    "eval_every":5,
+                    "store_every":0,
+                    "loss_function":nn.CrossEntropyLoss(reduction="none") if lfn == "cross-entropy" else one_hot_mse,
+                    "use_amp":False,
+                    "device":"cuda",
+                    "train_data": torchvision.datasets.ImageFolder(train_path, transform = train_transformation(64)),
+                    "test_data": torchvision.datasets.ImageFolder(test_path, transform = test_transformation(64)),
+                    "verbose":True
+                }
+            )
+
+            models.append(
+                {
+                    "model":SMCLClassifier,
+                    "n_estimators":m,
+                    "combination_type":"best",
+                    "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                    "optimizer":optimizer,
+                    "scheduler":scheduler,
+                    "loader":loader,
+                    "eval_every":5,
+                    "store_every":0,
+                    "loss_function":nn.CrossEntropyLoss(reduction="none") if lfn == "cross-entropy" else one_hot_mse,
+                    "use_amp":False,
+                    "device":"cuda",
+                    "train_data": torchvision.datasets.ImageFolder(train_path, transform = train_transformation(64)),
+                    "test_data": torchvision.datasets.ImageFolder(test_path, transform = test_transformation(64)),
+                    "verbose":True
+                }
+            )
+
+            for l_reg in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]: 
+                models.append(
+                    {
+                        "model":GNCLClassifier,
+                        "n_estimators":m,
+                        "mode":"upper",
+                        "l_reg":l_reg,
+                        "combination_type":"average",
+                        "base_estimator": partial(simpleresnet, size=s, model_type=t),
+                        "optimizer":optimizer,
+                        "scheduler":scheduler,
+                        "loader":loader,
+                        "eval_every":5,
+                        "store_every":0,
+                        "loss_function":nn.CrossEntropyLoss(reduction="none") if lfn == "cross-entropy" else one_hot_mse,
+                        "use_amp":False,
+                        "device":"cuda",
+                        "train_data": torchvision.datasets.ImageFolder(train_path, transform = train_transformation(64)),
+                        "test_data": torchvision.datasets.ImageFolder(test_path, transform = test_transformation(64)),
+                        "verbose":True
+                    }
+                )
 
 try:
     base = models[0]["base_estimator"]().cuda()
-    rnd_input = torch.rand((1, 3, 32, 32)).cuda()
+    rnd_input = torch.rand((1, 1, 64, 64)).cuda()
     print(summary(base, rnd_input))
 except:
     pass

@@ -24,7 +24,7 @@ dependencies:
     - torchsummary # Technically not a dependency, but helps for developing models and check their size / # parameters
     # For some reason it seems more stable to install torch via pip into this conda environment
     # If we use the above code, we sometimes (?!) end up with cuda 10.2 instead of 10.1?!
-    - torch==1.6.0+cu101 torchvision==0.7.0+cu101 -f https://download.pytorch.org/whl/torch_stable.html
+    - torch==1.6.0+cu102 torchvision==0.7.0+cu102 -f https://download.pytorch.org/whl/torch_stable.html
     - scikit-learn
     - scipy
     - gdown

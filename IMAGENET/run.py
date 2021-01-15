@@ -235,33 +235,32 @@ def densenet():
 def stacking_classifier():
     return torch.nn.Linear(8*1000,1000)
 
-# models.append(
-#     {
-#         "model":Model,
-#         "base_estimator": mobilenetv3,
-#         "optimizer":optimizer,
-#         "scheduler":scheduler,
-#         "loader":loader,
-#         "eval_every":2,
-#         "store_every":10,
-#         "loss_function":nn.CrossEntropyLoss(reduction="none"),
-#         "use_amp":True,
-#         "device":"cuda",
-#         "train_data": 
-#             ImageNetWithProgressiveResizing(
-#                 [
-#                     torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(64)),
-#                     torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(96)),
-#                     torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(128)),
-#                     torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(196)),
-#                     torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(224))
-#                 ], switch_every=10
-#             ),
-#         #"train_data":devel_dataset,
-#         "test_data": torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="val", transform = test_transformation(224)),
-#         "verbose":True
-#     }
-# )
+models.append(
+    {
+        "model":Model,
+        "base_estimator": mobilenetv3,
+        "optimizer":optimizer,
+        "scheduler":scheduler,
+        "loader":loader,
+        "eval_every":2,
+        "store_every":10,
+        "loss_function":nn.CrossEntropyLoss(reduction="none"),
+        "use_amp":True,
+        "device":"cuda",
+        "train_data": 
+           ImageNetWithProgressiveResizing(
+                [
+                    torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(64)),
+                    torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(96)),
+                    torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(128)),
+                    torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(196)),
+                    torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(224))
+                ], switch_every=10
+            ),
+        "test_data": torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="val", transform = test_transformation(224)),
+        "verbose":True
+    }
+)
 
 n_estimators = 8
 
@@ -440,36 +439,36 @@ n_estimators = 8
 #     }
 # )
 
-for l_reg in [0, 0.2, 0.4, 0.6, 0.8, 1]: 
-    models.append(
-        {
-            "model":GNCLClassifier,
-            "n_estimators":n_estimators,
-            "mode":"upper",
-            "l_reg":l_reg,
-            "base_estimator": mobilenetv3,
-            "optimizer":optimizer,
-            "scheduler":scheduler,
-            "loader":loader,
-            "eval_every":2,
-            "store_every":10,
-            "loss_function":nn.CrossEntropyLoss(reduction="none"),
-            "use_amp":True,
-            "device":"cuda",
-            "train_data": 
-                ImageNetWithProgressiveResizing(
-                    [
-                        #torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(64)),
-                        #torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(96)),
-                        torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(128)),
-                        torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(196)),
-                        torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(224))
-                    ], switch_every=10
-                ),
-            "test_data": torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="val", transform = test_transformation(224)),
-            "verbose":True,
-        }
-    )
+# for l_reg in [0, 0.2, 0.4, 0.6, 0.8, 1]: 
+#     models.append(
+#         {
+#             "model":GNCLClassifier,
+#             "n_estimators":n_estimators,
+#             "mode":"upper",
+#             "l_reg":l_reg,
+#             "base_estimator": mobilenetv3,
+#             "optimizer":optimizer,
+#             "scheduler":scheduler,
+#             "loader":loader,
+#             "eval_every":2,
+#             "store_every":10,
+#             "loss_function":nn.CrossEntropyLoss(reduction="none"),
+#             "use_amp":True,
+#             "device":"cuda",
+#             "train_data": 
+#                 ImageNetWithProgressiveResizing(
+#                     [
+#                         #torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(64)),
+#                         #torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(96)),
+#                         torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(128)),
+#                         torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(196)),
+#                         torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="train", transform = train_transformation(224))
+#                     ], switch_every=10
+#                 ),
+#             "test_data": torchvision.datasets.ImageNet("/data/d2/pfahler/imagenet", split="val", transform = test_transformation(224)),
+#             "verbose":True,
+#         }
+#     )
 
 base = models[0]["base_estimator"]().cuda()
 rnd_input = torch.rand((1, 3, 224, 224)).cuda()
