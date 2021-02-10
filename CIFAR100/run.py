@@ -51,6 +51,18 @@ from pysembles.models.SimpleResNet import SimpleResNet
 from pysembles.models.MobileNetV3 import MobileNetV3
 from pysembles.models.BinarisedNeuralNetworks import BinaryModel
 
+'''
+In this script we train ensembles on CIFAR100 with minimal data augmentation
+
+We configure an experiment by three common functions which are called via the experiment_runner wrapper and some additional base information. 
+Each experiment is configured through a dictionary. Apart from a few reserved keywords (e.g. pre/post/fit) every other field is simply passed to 
+to each function and can be used as desired. The three functions are
+    - pre: Everything which needs to be done before running the experiments
+    - fit: Running the actual experiments
+    - post: Everything which needs to be done after the experiment
+'''
+
+# Perform data augmentation for training data
 # Constants for data normalization are taken from https://github.com/kuangliu/pytorch-cifar/blob/master/main.py 
 def train_transformation():
     return transforms.Compose([
@@ -60,17 +72,25 @@ def train_transformation():
             transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
         ])
 
+# Only normalize the testing data without further augmentation 
+# Constants for data normalization are taken from https://github.com/kuangliu/pytorch-cifar/blob/master/main.py 
 def test_transformation():
     return transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
     ])
 
+# PyTorch's MSE does not support classification per se. For our MSE experiments we use this simple function
 def one_hot_mse(output, target):
     one_hot = torch.nn.functional.one_hot(target, num_classes = 100)
     loss = (output - one_hot)**2
     return loss.sum(axis=1)
 
+# In order to compute the ensembles diversity, we need to compute the hessian of for the chosen loss. 
+# This is an implementation for the MSE which supports batched predictions. The diversity implementations for other loss
+# functions (compatible with PyTorch) can be found in Metrics.py. 
+#   model: The ensemble for which we want to get the diversity
+#   data_loader: The data_loder which contains the data
 def mse_diversity(model, data_loader):
     if not hasattr(model, "estimators_"):
         return 0
@@ -103,6 +123,11 @@ def mse_diversity(model, data_loader):
     div = torch.cat(diversities,dim=0)
     return div.sum(dim=1).mean(dim=0).item()
 
+# This function is called by the experiment_runner to prepare an experiment.
+# It expects each experiment configuration to contain a "model" field which is the c'tor of a new model. 
+# For convenience, this function checks for any matching c'tor argument in the current experiment config 
+# and creates the approprate model. Note however, that get_ctor_arguments sometimes does not return all 
+# arguments for inheritance (??). 
 def pre(cfg):
     model_ctor = cfg.pop("model")
     tmpcfg = cfg
@@ -114,6 +139,8 @@ def pre(cfg):
     model = model_ctor(**expected)
     return model
 
+# This function computes statistics after the model has been fit. 
+# In this case, it simply stores accuracy / loss / no. parameters as well as the diversity values
 def post(cfg, model):
     scores = {}
     train_loader = torch.utils.data.DataLoader(cfg["train_data"], **cfg["loader"])
@@ -143,6 +170,7 @@ def post(cfg, model):
 
     return scores
 
+# This method implements the actual fitting of the model. Basic support for resuming checkpoints is also implemented.
 def fit(cfg, model):
     checkpoints = glob.glob(os.path.join(cfg["out_path"], "*.tar"))
     if len(checkpoints) > 0:
@@ -160,6 +188,7 @@ def fit(cfg, model):
     model.fit(cfg["train_data"])
     return model
 
+# Gather some input configuration
 parser = argparse.ArgumentParser()
 parser.add_argument("-l", "--local", help="Run on local machine",action="store_true", default=False)
 parser.add_argument("-r", "--ray", help="Run via Ray",action="store_true", default=False)
@@ -172,6 +201,19 @@ if (args.local and args.ray) or (not args.local and not args.ray):
     args.local = True
 
 
+'''
+Check if we train on a single machine or via Ray and create the basic configuration for it. The basic configuration is shared across all experiments:
+basecfg = {
+    "out_path": Path where results should be stored
+    "pre": The pre-function
+    "post": The post-function
+    "fit": The fit-function
+    "backend": The running mode-, e.g. "local"/"ray"/"multiprocessing"
+    "verbose": True / False if outputs should be printed
+    "param_1": Additional parameter 1 required by the backend, e.g. the "ray_head"
+    "param_2": Additional parameter 2 required by the backend, e.g. the "redis_password" etc
+}
+'''
 if args.local:
     basecfg = {
         "out_path":os.path.join(datetime.now().strftime('%d-%m-%Y-%H:%M:%S')),
@@ -182,45 +224,45 @@ if args.local:
         "verbose":False
     }
 else:
-    pass
-    # basecfg = {
-    #     "out_path":os.path.join("FASHION", "results", datetime.now().strftime('%d-%m-%Y-%H:%M:%S')),
-    #     "pre": pre,
-    #     "post": post,
-    #     "fit": fit,
-    #     "backend": "ray",
-    #     "ray_head": args.ray_head,
-    #     "redis_password": args.redis_password,
-    #     "verbose":False
-    # }
+    basecfg = {
+        "out_path":os.path.join("results", datetime.now().strftime('%d-%m-%Y-%H:%M:%S')),
+        "pre": pre,
+        "post": post,
+        "fit": fit,
+        "backend": "ray",
+        "ray_head": args.ray_head,
+        "redis_password": args.redis_password,
+        "verbose":False
+    }
 
-
+# This is a list of all model configurations we want to train
 models = []
 
+# This is the configuration of the learning rate scheduler used in all experiments
 scheduler = {
     "method" : torch.optim.lr_scheduler.StepLR,
     "step_size" : 50,
     "gamma": 0.5
 }
 
+# This is the configuration of the optimizer used in all experiments
 optimizer = {
-    #"method" : AdaBelief, # torch.optim.Adam, #if "binary" in t else torch.optim.SGD,
     "method" : AdaBelief,
-    "lr" : 1e-3, #1e-3, #if "binary" in t else 0.1,
-    # "momentum" : 0.9,
-    # "nesterov" : True,
-    # "weight_decay" : 1e-4, 
+    "lr" : 1e-3,
     "epochs" : 200,
     "eps" : 1e-12,
     "betas" : (0.9,0.999)
 }
 
+# This is the configuration of the data loader used in all experiments
 loader = {
     "num_workers": 1, 
     "batch_size" : 256,
     "pin_memory": True
 }
 
+# This is the ResNet architecture which is used as a base model in all experiments. 
+# This function returns a new model depending on the size and type (float / binary) given.
 def simpleresnet(size, model_type):
     if "small" == size:
         n_channels = 32
@@ -234,6 +276,7 @@ def simpleresnet(size, model_type):
     else:
         return SimpleResNet(in_channels = 3, n_channels = n_channels, depth = depth, num_classes=100)
 
+# This function constructs a classifier model for stacking. In this case its a simple linear layer.
 def stacking_classifier(model_type):
     classifier = torch.nn.Linear(16*100,100)
 
@@ -242,9 +285,33 @@ def stacking_classifier(model_type):
     else:
         return classifier
 
+# This is the loss function used in all experiments.
 loss_function = one_hot_mse
 #loss_function = nn.CrossEntropyLoss(reduction="none")
 
+'''
+These are the actual methods / experiments we want to run with all necessary options. Regardless of the implementation, the exact parameters should be sufficient to reproduce the results. The options are as the following:
+model.append(
+    {
+        "model": The ensemble method, e.g, Bagging
+        "n_estimators": The number of estimators, e.g. 16
+        "param_1": Additional parameter 1 for "model"
+        "param_2": Additional parameter 2 for "model" and so on
+        "base_estimator": A function which creates a new base learner for the ensemble 
+        "optimizer": A dictionary containing all configs for the optimizer
+        "scheduler": A dictionary containing all configs for the scheduler
+        "loader": A dictionary containing all configs for the data loader
+        "eval_every": if test data is supplied, we want to evaluate our model on it every "eval_every" epochs
+        "store_every": Store a checkpoint of the model every "store_every" epochs
+        "loss_function": The loss function to be minimized
+        "use_amp": True / False if PyTorch mixed precision should be used
+        "device": The device ("cpu" / "cuda") used for training
+        "train_data": The torch dataset containing the training data
+        "test_data": The torch dataset containing the testing data
+        "verbose":True / False if a TQDM progress bar should be shown
+    }
+)
+'''
 for s, t in [ ("small", "float"), ("large", "float"), ("small", "binary")]: 
     for m in [16]:
         models.append(
@@ -406,6 +473,10 @@ for s, t in [ ("small", "float"), ("large", "float"), ("small", "binary")]:
         }
     )
 
+# When playing around with different base-learners it is easy to miss-configure the first linear layer (after all the conv layers)
+# In that case it might be helpful to 
+#   1) Check the base model before running any experiments
+#   2) Print additional statistics about the size of the base learners to make sure the entire ensemble fits our GPU
 try:
     base = models[0]["base_estimator"]().cuda()
     rnd_input = torch.rand((1, 3, 32, 32)).cuda()
@@ -413,4 +484,5 @@ try:
 except:
     pass
 
+# Run the experiments with the given basic configuration (shared across all experiments) and the specific configuration
 run_experiments(basecfg, models)
